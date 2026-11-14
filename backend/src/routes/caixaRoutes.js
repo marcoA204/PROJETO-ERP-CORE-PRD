@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const caixaController = require('../controllers/caixaController');
 
+router.get('/atual', caixaController.caixaAtual);
 router.post('/abrir', caixaController.abrirCaixa);
 router.post('/fechar', caixaController.fecharCaixa);
 

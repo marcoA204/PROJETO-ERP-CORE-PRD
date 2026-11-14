@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { QRCodeSVG } from "qrcode.react";
 
 // ── Paleta de cores ──────────────────────────────────────────
 const C = {
@@ -157,44 +158,123 @@ function StatCard({ label, value, sub, color, icon }) {
   );
 }
 
-// ── Tela: Dashboard ──────────────────────────────────────────
-function Dashboard({ products, transactions }) {
-  const totalEntradas = transactions.filter(t => t.tipo === "entrada").reduce((s, t) => s + t.valor, 0);
-  const totalSaidas = transactions.filter(t => t.tipo === "saida").reduce((s, t) => s + t.valor, 0);
-  const saldo = totalEntradas - totalSaidas;
-  const alertas = products.filter(p => p.estoque < p.minimo).length;
-  const recentes = [...transactions].sort((a, b) => b.data.localeCompare(a.data)).slice(0, 5);
+// ── Tela: Dashboard (dados reais do banco) ──────────────────
+function Dashboard() {
+  const [dados, setDados] = useState(null);
+  const [erro, setErro] = useState("");
+
+  // Busca os números no backend sempre que a tela abre
+  useEffect(() => {
+    let ativo = true;
+    fetch("http://localhost:3000/api/dashboard")
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error("Falha ao carregar o dashboard."))))
+      .then(d => { if (ativo) setDados(d); })
+      .catch(e => { if (ativo) setErro(e.message || "Falha na comunicação com o backend."); });
+    return () => { ativo = false; };
+  }, []);
+
+  const titulo = (
+    <>
+      <h1 style={{ color: C.navyDark, fontWeight: 700, fontSize: 22, marginBottom: 6 }}>Dashboard</h1>
+      <p style={{ color: C.grayMid, fontSize: 14, marginBottom: 28 }}>Visão geral do seu negócio</p>
+    </>
+  );
+
+  if (erro) return (
+    <div>{titulo}
+      <div style={{ color: C.red, background: C.redBg, borderRadius: 8, padding: "12px 16px", fontSize: 14 }}>{erro}</div>
+    </div>
+  );
+  if (!dados) return <div>{titulo}<div style={{ color: C.grayMid, fontSize: 14 }}>Carregando...</div></div>;
+
+  const { resumo, dre, alertas, movimentacoes } = dados;
+  const mesLabel = (m) => m.split("-").reverse().join("/");
+  const entradas = resumo.faturamento;
+  const saidas = resumo.custo + resumo.despesas;
+  const saldo = resumo.lucro;
+  const th = { padding: "10px 16px", textAlign: "left", color: C.grayMid, fontSize: 12, fontWeight: 600 };
+  const td = { padding: "12px 16px", fontSize: 13, color: C.navyDark };
+  const painel = { background: C.bgCard, borderRadius: 12, boxShadow: "0 1px 4px rgba(26,43,74,0.08)", overflow: "hidden", marginBottom: 28 };
+  const painelTitulo = { padding: "18px 24px", borderBottom: `1px solid ${C.grayLight}`, color: C.navyDark, fontWeight: 600, fontSize: 15 };
 
   return (
     <div>
-      <h1 style={{ color: C.navyDark, fontWeight: 700, fontSize: 22, marginBottom: 6 }}>Dashboard</h1>
-      <p style={{ color: C.grayMid, fontSize: 14, marginBottom: 28 }}>Visão geral do seu negócio</p>
+      {titulo}
 
-      {/* Cards */}
+      {/* Cards (mês atual) */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 32 }}>
-        <StatCard label="Total Entradas" value={fmt(totalEntradas)} sub="no período" color={C.green} icon={Icon.arrowUp} />
-        <StatCard label="Total Saídas" value={fmt(totalSaidas)} sub="no período" color={C.red} icon={Icon.arrowDown} />
-        <StatCard label="Saldo" value={fmt(saldo)} sub={saldo >= 0 ? "positivo" : "negativo"} color={saldo >= 0 ? C.green : C.red} />
-        <StatCard label="Alertas Estoque" value={alertas} sub={alertas > 0 ? "produtos abaixo do mínimo" : "tudo em ordem"} color={alertas > 0 ? C.yellow : C.green} icon={alertas > 0 ? Icon.alert : null} />
+        <StatCard label="Total Entradas" value={fmt(entradas)} sub={`vendas em ${mesLabel(resumo.mes)}`} color={C.green} icon={Icon.arrowUp} />
+        <StatCard label="Total Saídas" value={fmt(saidas)} sub="custo dos produtos + despesas" color={C.red} icon={Icon.arrowDown} />
+        <StatCard label="Saldo" value={fmt(saldo)} sub={saldo >= 0 ? "lucro líquido do mês" : "prejuízo no mês"} color={saldo >= 0 ? C.green : C.red} />
+        <StatCard label="Alertas Estoque" value={alertas.length} sub={alertas.length > 0 ? "produtos para repor" : "tudo em ordem"} color={alertas.length > 0 ? C.yellow : C.green} icon={alertas.length > 0 ? Icon.alert : null} />
+      </div>
+
+      {/* Estoque baixo (vw_SugestaoCompra) */}
+      <div style={painel}>
+        <div style={painelTitulo}>Produtos para repor</div>
+        {alertas.length === 0 ? (
+          <div style={{ padding: 24, color: C.grayMid, fontSize: 13 }}>Nenhum produto abaixo do estoque mínimo.</div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: C.bgPage }}>
+                {["Produto", "Estoque", "Mínimo", "Sugestão de compra"].map(h => <th key={h} style={th}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {alertas.map((a, i) => (
+                <tr key={i} style={{ borderTop: `1px solid ${C.grayLight}` }}>
+                  <td style={{ ...td, fontWeight: 600 }}>{a.Produto}</td>
+                  <td style={{ ...td, color: C.red, fontWeight: 600 }}>{a.estoque_atual}</td>
+                  <td style={{ ...td, color: C.grayMid }}>{a.estoque_minimo}</td>
+                  <td style={td}>{a.Qtd_Comprar} un.</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* DRE dos últimos meses (vw_RelatorioMensal_DRE) */}
+      <div style={painel}>
+        <div style={painelTitulo}>Resultado por mês (DRE)</div>
+        {dre.length === 0 ? (
+          <div style={{ padding: 24, color: C.grayMid, fontSize: 13 }}>Ainda não há vendas nem despesas registradas.</div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: C.bgPage }}>
+                {["Mês", "Faturamento", "Custo dos produtos", "Despesas", "Lucro líquido"].map(h => <th key={h} style={th}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {dre.map(d => (
+                <tr key={d.Mes} style={{ borderTop: `1px solid ${C.grayLight}` }}>
+                  <td style={{ ...td, fontWeight: 600 }}>{mesLabel(d.Mes)}</td>
+                  <td style={td}>{fmt(d.Faturamento_Real_Recebido)}</td>
+                  <td style={td}>{fmt(d.Custo_Produtos)}</td>
+                  <td style={td}>{fmt(d.Despesas_Operacionais)}</td>
+                  <td style={{ ...td, fontWeight: 700, color: d.Lucro_Liquido >= 0 ? C.green : C.red }}>{fmt(d.Lucro_Liquido)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Últimas movimentações */}
-      <div style={{ background: C.bgCard, borderRadius: 12, boxShadow: "0 1px 4px rgba(26,43,74,0.08)", overflow: "hidden" }}>
-        <div style={{ padding: "18px 24px", borderBottom: `1px solid ${C.grayLight}` }}>
-          <span style={{ color: C.navyDark, fontWeight: 600, fontSize: 15 }}>Últimas Movimentações</span>
-        </div>
+      <div style={painel}>
+        <div style={painelTitulo}>Últimas Movimentações</div>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: C.bgPage }}>
-              {["Data", "Tipo", "Produto", "Qtd", "Valor"].map(h => (
-                <th key={h} style={{ padding: "10px 16px", textAlign: "left", color: C.grayMid, fontSize: 12, fontWeight: 600 }}>{h}</th>
-              ))}
+              {["Data", "Tipo", "Produto / Descrição", "Qtd", "Valor"].map(h => <th key={h} style={th}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
-            {recentes.map((t) => (
-              <tr key={t.id} style={{ borderTop: `1px solid ${C.grayLight}` }}>
-                <td style={{ padding: "12px 16px", fontSize: 13, color: C.grayMid }}>{t.data.split("-").reverse().join("/")}</td>
+            {movimentacoes.map((t, i) => (
+              <tr key={i} style={{ borderTop: `1px solid ${C.grayLight}` }}>
+                <td style={{ ...td, color: C.grayMid }}>{t.data}</td>
                 <td style={{ padding: "12px 16px" }}>
                   <span style={{
                     background: t.tipo === "entrada" ? C.greenBg : C.redBg,
@@ -206,11 +286,14 @@ function Dashboard({ products, transactions }) {
                     {t.tipo.charAt(0).toUpperCase() + t.tipo.slice(1)}
                   </span>
                 </td>
-                <td style={{ padding: "12px 16px", fontSize: 13, color: C.navyDark, fontWeight: 500 }}>{t.produto}</td>
-                <td style={{ padding: "12px 16px", fontSize: 13, color: C.navyDark }}>{t.qtd}</td>
-                <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: t.tipo === "entrada" ? C.green : C.red }}>{fmt(t.valor)}</td>
+                <td style={{ ...td, fontWeight: 500 }}>{t.produto}</td>
+                <td style={td}>{t.qtd ?? "-"}</td>
+                <td style={{ ...td, fontWeight: 600, color: t.tipo === "entrada" ? C.green : C.red }}>{fmt(t.valor)}</td>
               </tr>
             ))}
+            {movimentacoes.length === 0 && (
+              <tr><td colSpan={5} style={{ padding: 32, textAlign: "center", color: C.grayMid }}>Nenhuma movimentação ainda.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -288,11 +371,143 @@ function Estoque({ products }) {
   );
 }
 
+// ── Recibo da venda: QR Code Pix + WhatsApp ──────────────────
+function ReciboVenda({ recibo, onClose }) {
+  const [telefone, setTelefone] = useState("");
+  const [aviso, setAviso] = useState("");
+  const [copiado, setCopiado] = useState(false);
+  const { loja, venda, itens, pix, pix_configurado } = recibo;
+
+  // Texto que será enviado ao cliente
+  const montarMensagem = () => {
+    const linhas = [`*${loja}* - Resumo da compra`, `Venda #${venda.id_venda} - ${venda.data_venda}`, ""];
+    itens.forEach(i => linhas.push(`${i.quantidade}x ${i.produto} - ${fmt(i.subtotal)}`));
+    linhas.push("");
+    if (venda.valor_desconto > 0) linhas.push(`Desconto: ${fmt(venda.valor_desconto)}`);
+    linhas.push(`*Total: ${fmt(venda.valor_a_receber)}*`);
+    if (pix) linhas.push("", "Pague com Pix (copia e cola):", pix.payload);
+    linhas.push("", "Obrigado pela preferência!");
+    return linhas.join("\n");
+  };
+
+  const abrirWhatsApp = () => {
+    const digitos = telefone.replace(/\D/g, "");
+    let numero = "";
+    if (digitos) {
+      numero = digitos.length <= 11 ? "55" + digitos : digitos; // acrescenta o código do Brasil
+      if (numero.length < 12 || numero.length > 13) {
+        setAviso("Digite o DDD + número. Ex.: 11 91234-5678");
+        return;
+      }
+    }
+    setAviso("");
+    // Sem número, o WhatsApp deixa você escolher o contato
+    window.open(`https://wa.me/${numero}?text=${encodeURIComponent(montarMensagem())}`, "_blank", "noopener,noreferrer");
+  };
+
+  const copiarPix = async () => {
+    try {
+      await navigator.clipboard.writeText(pix.payload);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2500);
+    } catch (e) {
+      setAviso("Não foi possível copiar. Selecione o texto e copie manualmente.");
+    }
+  };
+
+  const secao = { borderTop: `1px solid ${C.grayLight}`, paddingTop: 18, marginTop: 18 };
+  const botao = { background: C.navyDark, color: C.white, border: "none", borderRadius: 8, padding: "10px 16px", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(26,43,74,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, overflowY: "auto" }}>
+      <div style={{ background: C.bgCard, borderRadius: 14, padding: 28, width: "100%", maxWidth: 460, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 8px 32px rgba(26,43,74,0.3)" }}>
+        <div style={{ color: C.green, fontWeight: 700, fontSize: 18 }}>✅ Venda #{venda.id_venda} registrada</div>
+        <div style={{ color: C.grayMid, fontSize: 13, marginTop: 4, marginBottom: 16 }}>{venda.data_venda}</div>
+
+        {itens.map((i, idx) => (
+          <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: C.navyDark, padding: "4px 0" }}>
+            <span>{i.quantidade}x {i.produto}</span>
+            <span>{fmt(i.subtotal)}</span>
+          </div>
+        ))}
+        {venda.valor_desconto > 0 && (
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.grayMid, padding: "4px 0" }}>
+            <span>Desconto</span><span>- {fmt(venda.valor_desconto)}</span>
+          </div>
+        )}
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 17, fontWeight: 700, color: C.navyDark, marginTop: 10 }}>
+          <span>Total</span><span>{fmt(venda.valor_a_receber)}</span>
+        </div>
+
+        {/* Pix */}
+        <div style={secao}>
+          <div style={{ fontWeight: 600, color: C.navyDark, marginBottom: 10 }}>Pagamento via Pix</div>
+          {pix ? (
+            <>
+              <div style={{ display: "flex", justifyContent: "center" }}>
+                <div style={{ background: "#fff", padding: 12, borderRadius: 8, border: `1px solid ${C.grayLight}` }}>
+                  <QRCodeSVG value={pix.payload} size={190} level="M" />
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: C.grayMid, textAlign: "center", margin: "8px 0 10px" }}>
+                O cliente escaneia com o app do banco. Valor: {fmt(venda.valor_a_receber)}
+              </div>
+              <textarea readOnly value={pix.payload} rows={3}
+                style={{ width: "100%", boxSizing: "border-box", fontSize: 11, padding: 8, borderRadius: 7, border: `1.5px solid ${C.grayLight}`, color: C.navyDark, fontFamily: "monospace", resize: "none" }} />
+              <button onClick={copiarPix} style={{ ...botao, width: "100%", marginTop: 8 }}>
+                {copiado ? "✔ Copiado!" : "Copiar Pix Copia e Cola"}
+              </button>
+              <div style={{ fontSize: 11, color: C.grayMid, marginTop: 6 }}>
+                Este Pix não confirma o pagamento sozinho: confira no app do seu banco antes de liberar o produto.
+              </div>
+            </>
+          ) : (
+            <div style={{ background: C.yellowBg, color: C.grayMid, borderRadius: 8, padding: "10px 14px", fontSize: 13 }}>
+              {pix_configurado
+                ? "Esta venda não tem valor a receber."
+                : "Pix ainda não configurado. Adicione PIX_CHAVE, PIX_NOME e PIX_CIDADE no arquivo .env do backend."}
+            </div>
+          )}
+        </div>
+
+        {/* WhatsApp */}
+        <div style={secao}>
+          <div style={{ fontWeight: 600, color: C.navyDark, marginBottom: 10 }}>Enviar resumo pelo WhatsApp</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input placeholder="DDD + número (opcional)" value={telefone} onChange={e => setTelefone(e.target.value)}
+              style={{ flex: 1, padding: "9px 12px", borderRadius: 7, border: `1.5px solid ${C.grayLight}`, fontSize: 13, fontFamily: "inherit", color: C.navyDark, outline: "none" }} />
+            <button onClick={abrirWhatsApp} style={{ ...botao, background: "#25D366" }}>Enviar</button>
+          </div>
+          {aviso && <div style={{ color: C.red, fontSize: 12, marginTop: 6 }}>{aviso}</div>}
+        </div>
+
+        <button onClick={onClose} style={{ ...botao, width: "100%", marginTop: 22, background: C.white, color: C.navyDark, border: `1.5px solid ${C.grayLight}` }}>Fechar</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Tela: Fluxo de Caixa ─────────────────────────────────────
-function FluxoCaixa({ transactions, setTransactions, products, atualizarLista }) { // <-- Adicione atualizarLista aqui
+function FluxoCaixa({ transactions, setTransactions, products, atualizarLista, idCaixa, setIdCaixa }) {
+  const hoje = () => new Date().toLocaleDateString("en-CA"); // AAAA-MM-DD no fuso local
+  const formVazio = () => ({ data: hoje(), tipo: "entrada", produto: "", qtd: "", valor: "", obs: "" });
+
   const [filtro, setFiltro] = useState("todos");
-  const [form, setForm] = useState({ data: "", tipo: "entrada", produto: "", qtd: "", valor: "", obs: "" });
+  const [form, setForm] = useState(formVazio);
   const [erro, setErro] = useState("");
+  const [trocoInicial, setTrocoInicial] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [recibo, setRecibo] = useState(null); // recibo da última venda (Pix + WhatsApp)
+
+  const arredondar = (n) => Math.round(n * 100) / 100;
+  const lerResposta = async (response) => { try { return await response.json(); } catch { return {}; } };
+
+  // Valor da venda = preço do produto x quantidade (calculado, para bater com o total no banco)
+  const calcularValor = (nomeProduto, qtd) => {
+    const prod = products.find(p => p.nome === nomeProduto);
+    if (!prod) return "";
+    return arredondar(prod.preco * (Number(qtd) || 1));
+  };
 
   const filtrados = transactions
     .filter(t => filtro === "todos" || t.tipo === filtro)
@@ -301,50 +516,96 @@ function FluxoCaixa({ transactions, setTransactions, products, atualizarLista })
   const totalEntradas = transactions.filter(t => t.tipo === "entrada").reduce((s, t) => s + t.valor, 0);
   const totalSaidas = transactions.filter(t => t.tipo === "saida").reduce((s, t) => s + t.valor, 0);
 
-  // Substitua apenas o handleAdd:
+  const handleAbrirCaixa = async () => {
+    try {
+      const response = await fetch("http://localhost:3000/api/caixa/abrir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ troco_inicial: Number(trocoInicial) || 0 })
+      });
+      const data = await lerResposta(response);
+      if (response.ok) { setIdCaixa(data.id_caixa); setErro(""); }
+      else setErro(data.erro || "Erro ao abrir o caixa.");
+    } catch (e) { setErro("Falha na comunicação com o backend."); }
+  };
+
+  const handleFecharCaixa = async () => {
+    try {
+      const response = await fetch("http://localhost:3000/api/caixa/fechar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_caixa: idCaixa })
+      });
+      const data = await lerResposta(response);
+      if (!response.ok) { setErro(data.erro || "Erro ao fechar o caixa."); return; }
+      setIdCaixa(null);
+      setTransactions([]); // Limpa as movimentações da tela no fim do turno
+      setTrocoInicial("");
+      setErro("");
+      alert("Caixa fechado com sucesso!");
+    } catch (e) { setErro("Falha na comunicação com o backend."); }
+  };
+
   const handleAdd = async () => {
-    if (!form.data || !form.produto || !form.qtd || !form.valor) {
-      setErro("Preencha todos os campos obrigatórios.");
+    if (salvando) return;
+    if (!form.data || !form.valor || Number(form.valor) <= 0) {
+      setErro("Preencha a data e um valor maior que zero.");
       return;
     }
 
-    if (form.tipo === "entrada") {
-      // Se é entrada, é uma VENDA! Vamos mandar pro Node.js
-      const produtoSelecionado = products.find(p => p.nome === form.produto);
+    setSalvando(true);
+    try {
+      if (form.tipo === "entrada") {
+        // ENTRADA = VENDA: vai para o Node.js, que chama sp_RegistrarVenda e baixa o estoque
+        if (!idCaixa) { setErro("Abra o caixa antes de registrar uma venda."); return; }
+        if (!form.produto || !form.qtd || Number(form.qtd) < 1) {
+          setErro("Selecione o produto e a quantidade.");
+          return;
+        }
+        const produtoSelecionado = products.find(p => p.nome === form.produto);
+        if (!produtoSelecionado) { setErro("Produto não encontrado. Recarregue a página."); return; }
 
-      try {
         const response = await fetch("http://localhost:3000/api/vendas", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            id_caixa: 1, // ID do caixa fixo por enquanto
+            id_caixa: idCaixa,
             valor_desconto: 0,
             itens: [{ codigo_barras: produtoSelecionado.codigo_barras, quantidade: Number(form.qtd) }],
-            pagamentos: [{ forma_pagamento: "PIX", valor_pago: Number(form.valor) }]
+            pagamentos: [{ forma_pagamento: "PIX", valor_pago: arredondar(Number(form.valor)) }]
           })
         });
+        const data = await lerResposta(response);
+        if (!response.ok) { setErro(data.erro || "Erro no servidor ao registrar a venda."); return; }
 
-        if (response.ok) {
-          // Salva no visual da tela
-          const nova = { id: Date.now(), ...form, qtd: Number(form.qtd), valor: Number(form.valor) };
-          setTransactions(prev => [...prev, nova]);
-          setForm({ data: "", tipo: "entrada", produto: "", qtd: "", valor: "", obs: "" });
-          setErro("");
+        const nova = { id: Date.now(), ...form, qtd: Number(form.qtd), valor: Number(form.valor) };
+        setTransactions(prev => [...prev, nova]);
+        atualizarLista(); // Atualiza o estoque na tela na hora
 
-          // MÁGICA: Atualiza o estoque no frontend na hora!
-          atualizarLista();
-        } else {
-          setErro("Erro no servidor ao registrar a venda.");
-        }
-      } catch (error) {
-        setErro("Falha na comunicação com o backend.");
+        // Busca o recibo da venda (itens, total e Pix) para mostrar o QR Code e o botão do WhatsApp
+        try {
+          const rr = await fetch(`http://localhost:3000/api/vendas/${data.id_venda}/recibo`);
+          if (rr.ok) setRecibo(await rr.json());
+        } catch (e) { /* a venda já foi salva; o recibo é um extra */ }
+      } else {
+        // SAÍDA = DESPESA: grava na tabela Despesas
+        const response = await fetch("http://localhost:3000/api/despesas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ descricao: form.obs, valor_total: Number(form.valor) })
+        });
+        const data = await lerResposta(response);
+        if (!response.ok) { setErro(data.erro || "Erro ao registrar a despesa."); return; }
+
+        const nova = { id: Date.now(), ...form, produto: "Despesa", qtd: "-", valor: Number(form.valor) };
+        setTransactions(prev => [...prev, nova]);
       }
-    } else {
-      // Se for saída (despesa), por enquanto só registra no visual
-      const nova = { id: Date.now(), ...form, qtd: Number(form.qtd), valor: Number(form.valor) };
-      setTransactions(prev => [...prev, nova]);
-      setForm({ data: "", tipo: "entrada", produto: "", qtd: "", valor: "", obs: "" });
+      setForm(formVazio());
       setErro("");
+    } catch (error) {
+      setErro("Falha na comunicação com o backend.");
+    } finally {
+      setSalvando(false);
     }
   };
 
@@ -356,14 +617,33 @@ function FluxoCaixa({ transactions, setTransactions, products, atualizarLista })
 
   return (
     <div>
+      {recibo && <ReciboVenda recibo={recibo} onClose={() => setRecibo(null)} />}
       <h1 style={{ color: C.navyDark, fontWeight: 700, fontSize: 22, marginBottom: 6 }}>Fluxo de Caixa</h1>
-      <p style={{ color: C.grayMid, fontSize: 14, marginBottom: 24 }}>Registre entradas e saídas de produtos</p>
+      <p style={{ color: C.grayMid, fontSize: 14, marginBottom: 24 }}>Registre entradas (vendas) e saídas (despesas)</p>
+
+      {/* Painel do caixa */}
+      <div style={{ background: C.bgCard, borderRadius: 12, padding: "16px 24px", marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, boxShadow: "0 1px 4px rgba(26,43,74,0.08)" }}>
+        {idCaixa ? (
+          <>
+            <div><span style={{ color: C.green, fontWeight: "bold" }}>✅ Caixa Aberto</span> (Turno #{idCaixa})</div>
+            <button onClick={handleFecharCaixa} style={{ background: C.red, color: C.white, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontWeight: "bold", fontFamily: "inherit" }}>Fechar Caixa</button>
+          </>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ color: C.grayMid, fontWeight: "bold" }}>🔒 Caixa Fechado</span>
+              <input type="number" placeholder="Troco Inicial (R$)" value={trocoInicial} onChange={e => setTrocoInicial(e.target.value)} style={inputStyle} min="0" />
+            </div>
+            <button onClick={handleAbrirCaixa} style={{ background: C.navyDark, color: C.white, border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", fontWeight: "bold", fontFamily: "inherit" }}>Abrir Caixa</button>
+          </>
+        )}
+      </div>
 
       {/* Resumo */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 28 }}>
-        <StatCard label="Entradas" value={fmt(totalEntradas)} color={C.green} sub="total geral" icon={Icon.arrowUp} />
-        <StatCard label="Saídas" value={fmt(totalSaidas)} color={C.red} sub="total geral" icon={Icon.arrowDown} />
-        <StatCard label="Saldo" value={fmt(totalEntradas - totalSaidas)} color={totalEntradas - totalSaidas >= 0 ? C.green : C.red} sub="total geral" />
+        <StatCard label="Entradas" value={fmt(totalEntradas)} color={C.green} sub="neste turno" icon={Icon.arrowUp} />
+        <StatCard label="Saídas" value={fmt(totalSaidas)} color={C.red} sub="neste turno" icon={Icon.arrowDown} />
+        <StatCard label="Saldo" value={fmt(totalEntradas - totalSaidas)} color={totalEntradas - totalSaidas >= 0 ? C.green : C.red} sub="neste turno" />
       </div>
 
       {/* Formulário de nova movimentação */}
@@ -372,30 +652,38 @@ function FluxoCaixa({ transactions, setTransactions, products, atualizarLista })
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
           <input type="date" value={form.data} onChange={e => setForm({ ...form, data: e.target.value })}
             style={{ ...inputStyle, flex: "1 1 140px" }} />
-          <select value={form.produto} onChange={e => {
-            const prod = products.find(p => p.nome === e.target.value);
-            setForm({ ...form, produto: e.target.value, valor: prod ? prod.preco * (form.qtd || 1) : "" });
-          }}
-            style={{ ...inputStyle, flex: "1 1 120px" }}>
-            <option value="entrada">Entrada</option>
-            <option value="saida">Saída</option>
+
+          {/* Tipo: entrada (venda) ou saída (despesa) */}
+          <select value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value, produto: "", qtd: "", valor: "" })}
+            style={{ ...inputStyle, flex: "1 1 140px" }}>
+            <option value="entrada">Entrada (Venda)</option>
+            <option value="saida">Saída (Despesa)</option>
           </select>
-          <select value={form.produto} onChange={e => { const prod = products.find(p => p.nome === e.target.value); setForm({ ...form, produto: e.target.value, valor: prod ? prod.preco : "" }); }}
-            style={{ ...inputStyle, flex: "1 1 160px" }}>
-            <option value="">Selecione o produto</option>
-            {products.map(p => <option key={p.id} value={p.nome}>{p.nome}</option>)}
-          </select>
-          <input type="number" placeholder="Qtd *" value={form.qtd} onChange={e => setForm({ ...form, qtd: e.target.value })}
-            style={{ ...inputStyle, flex: "1 1 80px" }} min="1" />
+
+          {/* Produto e quantidade só aparecem para vendas */}
+          {form.tipo === "entrada" && (
+            <>
+              <select value={form.produto}
+                onChange={e => setForm({ ...form, produto: e.target.value, valor: calcularValor(e.target.value, form.qtd) })}
+                style={{ ...inputStyle, flex: "1 1 160px" }}>
+                <option value="">Selecione o produto</option>
+                {products.map(p => <option key={p.id} value={p.nome}>{p.nome}</option>)}
+              </select>
+              <input type="number" placeholder="Qtd *" value={form.qtd}
+                onChange={e => setForm({ ...form, qtd: e.target.value, valor: form.produto ? calcularValor(form.produto, e.target.value) : form.valor })}
+                style={{ ...inputStyle, flex: "1 1 80px" }} min="1" />
+            </>
+          )}
+
           <input type="number" placeholder="Valor R$ *" value={form.valor} onChange={e => setForm({ ...form, valor: e.target.value })}
-            style={{ ...inputStyle, flex: "1 1 120px" }} min="0" />
-          <input placeholder="Observação" value={form.obs} onChange={e => setForm({ ...form, obs: e.target.value })}
+            style={{ ...inputStyle, flex: "1 1 120px" }} min="0" step="0.01" />
+          <input placeholder={form.tipo === "saida" ? "Descrição da despesa *" : "Observação"} value={form.obs} onChange={e => setForm({ ...form, obs: e.target.value })}
             style={{ ...inputStyle, flex: "2 1 200px" }} />
-          <button onClick={handleAdd} style={{
+          <button onClick={handleAdd} disabled={salvando} style={{
             background: C.navyDark, color: C.white, border: "none", borderRadius: 8,
-            padding: "9px 22px", fontSize: 14, fontWeight: 600, cursor: "pointer",
-            fontFamily: "inherit", flex: "0 0 auto",
-          }}>Registrar</button>
+            padding: "9px 22px", fontSize: 14, fontWeight: 600, cursor: salvando ? "wait" : "pointer",
+            fontFamily: "inherit", flex: "0 0 auto", opacity: salvando ? 0.7 : 1,
+          }}>{salvando ? "Salvando..." : "Registrar"}</button>
         </div>
         {erro && <div style={{ color: C.red, fontSize: 13, marginTop: 8 }}>{erro}</div>}
       </div>
@@ -416,7 +704,7 @@ function FluxoCaixa({ transactions, setTransactions, products, atualizarLista })
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: C.bgPage }}>
-              {["Data", "Tipo", "Produto", "Qtd", "Valor", "Observação", ""].map((h, i) => (
+              {["Data", "Tipo", "Produto", "Qtd", "Valor", "Observação"].map((h, i) => (
                 <th key={i} style={{ padding: "12px 16px", textAlign: "left", color: C.grayMid, fontSize: 12, fontWeight: 600 }}>{h}</th>
               ))}
             </tr>
@@ -440,16 +728,10 @@ function FluxoCaixa({ transactions, setTransactions, products, atualizarLista })
                 <td style={{ padding: "12px 16px", fontSize: 13, color: C.navyDark }}>{t.qtd}</td>
                 <td style={{ padding: "12px 16px", fontSize: 13, fontWeight: 600, color: t.tipo === "entrada" ? C.green : C.red }}>{fmt(t.valor)}</td>
                 <td style={{ padding: "12px 16px", fontSize: 13, color: C.grayMid }}>{t.obs}</td>
-                <td style={{ padding: "12px 16px" }}>
-                  <button onClick={() => handleDelete(t.id)} style={{
-                    background: C.redBg, color: C.red, border: "none", borderRadius: 6,
-                    padding: "5px 8px", cursor: "pointer", display: "flex", alignItems: "center",
-                  }}>{Icon.trash}</button>
-                </td>
               </tr>
             ))}
             {filtrados.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: C.grayMid }}>Nenhuma movimentação encontrada.</td></tr>
+              <tr><td colSpan={6} style={{ padding: 32, textAlign: "center", color: C.grayMid }}>Nenhuma movimentação encontrada.</td></tr>
             )}
           </tbody>
         </table>
@@ -476,7 +758,7 @@ function CadastroProduto({ products, atualizarLista }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nome: form.nome,
-          categoria: form.categoria,
+          nome_categoria: form.categoria,
           estoque_inicial: Number(form.estoque),
           estoque_minimo: Number(form.minimo),
           preco_venda: Number(form.preco),
@@ -493,7 +775,8 @@ function CadastroProduto({ products, atualizarLista }) {
         // Pede para o App buscar a lista nova do banco!
         atualizarLista();
       } else {
-        setErro("Erro no servidor ao salvar produto.");
+        const data = await response.json().catch(() => ({}));
+        setErro(data.erro || "Erro no servidor ao salvar produto.");
       }
     } catch (error) {
       setErro("Falha na comunicação com o backend.");
@@ -557,7 +840,7 @@ function CadastroProduto({ products, atualizarLista }) {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: C.bgPage }}>
-                {["Produto", "Categoria", "Estoque", "Mínimo", "Preço", ""].map((h, i) => (
+                {["Produto", "Categoria", "Estoque", "Mínimo", "Preço"].map((h, i) => (
                   <th key={i} style={{ padding: "11px 16px", textAlign: "left", color: C.grayMid, fontSize: 12, fontWeight: 600 }}>{h}</th>
                 ))}
               </tr>
@@ -570,12 +853,6 @@ function CadastroProduto({ products, atualizarLista }) {
                   <td style={{ padding: "12px 16px", color: p.estoque < p.minimo ? C.red : C.navyDark, fontWeight: 600, fontSize: 13 }}>{p.estoque}</td>
                   <td style={{ padding: "12px 16px", color: C.grayMid, fontSize: 13 }}>{p.minimo}</td>
                   <td style={{ padding: "12px 16px", color: C.navyDark, fontSize: 13 }}>{fmt(p.preco)}</td>
-                  <td style={{ padding: "12px 16px" }}>
-                    <button onClick={() => handleDelete(p.id)} style={{
-                      background: C.redBg, color: C.red, border: "none", borderRadius: 6,
-                      padding: "5px 8px", cursor: "pointer", display: "flex", alignItems: "center",
-                    }}>{Icon.trash}</button>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -612,11 +889,25 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
 
   // Toda vez que logar, busca os produtos reais do banco!
+  // Caixa aberto no momento (vem do banco, então não se perde ao trocar de tela ou apertar F5)
+  const [idCaixa, setIdCaixa] = useState(null);
+
   useEffect(() => {
     if (logado) {
       buscarProdutos();
+      buscarCaixaAberto();
     }
   }, [logado]);
+
+  const buscarCaixaAberto = async () => {
+    try {
+      const response = await fetch("http://localhost:3000/api/caixa/atual");
+      const dados = await response.json();
+      setIdCaixa(dados.id_caixa || null);
+    } catch (erro) {
+      console.error("Erro ao buscar o caixa aberto:", erro);
+    }
+  };
 
   const buscarProdutos = async () => {
     try {
@@ -640,7 +931,7 @@ export default function App() {
     switch (tela) {
       case "dashboard": return <Dashboard products={products} transactions={transactions} />;
       case "estoque": return <Estoque products={products} />;
-      case "fluxo": return <FluxoCaixa transactions={transactions} setTransactions={setTransactions} products={products} atualizarLista={buscarProdutos} />;
+      case "fluxo": return <FluxoCaixa transactions={transactions} setTransactions={setTransactions} products={products} atualizarLista={buscarProdutos} idCaixa={idCaixa} setIdCaixa={setIdCaixa} />;
       // Passamos a função buscarProdutos para o Cadastro atualizar a lista na hora
       case "cadastro": return <CadastroProduto products={products} atualizarLista={buscarProdutos} />;
       default: return null;
@@ -729,3 +1020,4 @@ function Login({ onLogin }) {
     </div>
   );
 }
+
