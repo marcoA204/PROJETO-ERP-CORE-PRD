@@ -17,14 +17,23 @@ const dbConfig = {
     }
 };
 
-async function connectToDatabase() {
-    try {
-        const pool = await sql.connect(dbConfig);
-        console.log('✅ Banco de dados SQL Server conectado com sucesso!');
-        return pool;
-    } catch (err) {
-        console.error('❌ Erro ao conectar no banco de dados: ', err);
+// A conexão é criada UMA vez e reaproveitada (antes, cada requisição abria uma nova).
+let poolPromise = null;
+
+function connectToDatabase() {
+    if (!poolPromise) {
+        poolPromise = sql.connect(dbConfig)
+            .then((pool) => {
+                console.log('✅ Banco de dados SQL Server conectado com sucesso!');
+                return pool;
+            })
+            .catch((err) => {
+                poolPromise = null; // permite tentar de novo na próxima requisição
+                console.error('❌ Erro ao conectar no banco de dados:', err.message);
+                throw err;          // quem chamou precisa saber que falhou
+            });
     }
+    return poolPromise;
 }
 
 module.exports = { sql, connectToDatabase, dbConfig };
