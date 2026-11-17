@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { C, Icon, fmt, api, inputStyle, botao, botaoClaro, cartao, ReciboVenda } from "../comum.jsx";
+import { useState, useEffect } from "react";
+import { C, Icon, fmt, api, inputStyle, botao, botaoClaro, cartao, ReciboVenda, SeletorCliente } from "../comum.jsx";
 
 const FORMAS = [
   { id: "DINHEIRO", label: "Dinheiro" },
@@ -13,7 +13,7 @@ const VAZIO = { DINHEIRO: "", PIX: "", CARTAO_DEBITO: "", CARTAO_CREDITO: "" };
 const centavos = (v) => Math.round((Number(v) || 0) * 100);
 const reais = (c) => c / 100;
 
-export default function PDV({ products, idCaixa, atualizarLista, setTransactions, irPara }) {
+export default function PDV({ products, idCaixa, atualizarLista, setTransactions, irPara, orcamentoPdv, limparOrcamentoPdv }) {
   const [busca, setBusca] = useState("");
   const [carrinho, setCarrinho] = useState([]); // { codigo_barras, nome, preco, qtd, estoque }
   const [desconto, setDesconto] = useState("");
@@ -22,6 +22,29 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
   const [salvando, setSalvando] = useState(false);
   const [recibo, setRecibo] = useState(null);
   const [troco, setTroco] = useState(0);
+  const [cliente, setCliente] = useState(null);       // cliente da venda (opcional)
+  const [idOrcamento, setIdOrcamento] = useState(null); // orçamento que está virando venda
+
+  // Veio de um orçamento ("Levar para o PDV"): monta o carrinho com o estoque e preço de HOJE
+  useEffect(() => {
+    if (!orcamentoPdv) return;
+    const avisos = [];
+    const novoCarrinho = [];
+    orcamentoPdv.itens.forEach(it => {
+      const prod = products.find(x => x.codigo_barras === it.codigo_barras);
+      if (!prod) { avisos.push(`"${it.produto}" não está mais disponível.`); return; }
+      const limite = prod.temFicha ? Infinity : prod.estoque;
+      const qtd = Math.min(it.quantidade, limite);
+      if (qtd <= 0) { avisos.push(`"${prod.nome}" está sem estoque.`); return; }
+      if (qtd < it.quantidade) avisos.push(`"${prod.nome}": só ${prod.estoque} un. em estoque (o orçamento tinha ${it.quantidade}).`);
+      novoCarrinho.push({ codigo_barras: prod.codigo_barras, nome: prod.nome, preco: prod.preco, qtd, estoque: limite });
+    });
+    setCarrinho(novoCarrinho);
+    setIdOrcamento(orcamentoPdv.id_orcamento);
+    setCliente(orcamentoPdv.cliente || null);
+    setDesconto(orcamentoPdv.valor_desconto ? String(orcamentoPdv.valor_desconto) : "");
+    setErro(avisos.join(" "));
+  }, [orcamentoPdv]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Contas ──────────────────────────────────────────────────
   const subtotalC = carrinho.reduce((s, i) => s + centavos(i.preco) * i.qtd, 0);
@@ -42,7 +65,8 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
   const adicionar = (p) => {
     const noCarrinho = carrinho.find(i => i.codigo_barras === p.codigo_barras);
     const jaTem = noCarrinho ? noCarrinho.qtd : 0;
-    if (p.estoque <= jaTem) {
+    const limite = p.temFicha ? Infinity : p.estoque;
+    if (limite <= jaTem) {
       setErro(`Só há ${p.estoque} un. de "${p.nome}" em estoque.`);
       return;
     }
@@ -50,7 +74,7 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
     if (noCarrinho) {
       setCarrinho(carrinho.map(i => i.codigo_barras === p.codigo_barras ? { ...i, qtd: i.qtd + 1 } : i));
     } else {
-      setCarrinho([...carrinho, { codigo_barras: p.codigo_barras, nome: p.nome, preco: p.preco, qtd: 1, estoque: p.estoque }]);
+      setCarrinho([...carrinho, { codigo_barras: p.codigo_barras, nome: p.nome, preco: p.preco, qtd: 1, estoque: limite }]);
     }
   };
 
@@ -78,6 +102,8 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
 
   const limpar = () => {
     setCarrinho([]); setDesconto(""); setRecebido(VAZIO); setErro("");
+    setCliente(null); setIdOrcamento(null);
+    if (limparOrcamentoPdv) limparOrcamentoPdv();
   };
 
   // ── Finalizar venda ─────────────────────────────────────────
@@ -101,6 +127,8 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
         valor_desconto: reais(descontoC),
         itens: carrinho.map(i => ({ codigo_barras: i.codigo_barras, quantidade: i.qtd })),
         pagamentos,
+        id_cliente: cliente ? cliente.id_cliente : null,
+        id_orcamento: idOrcamento,
       },
     });
 
@@ -167,23 +195,26 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
               style={{ ...inputStyle, width: "100%", fontSize: 14, padding: "10px 14px" }} />
           </div>
           <div style={{ maxHeight: 420, overflowY: "auto" }}>
-            {resultados.map(p => (
-              <button key={p.id} onClick={() => adicionar(p)} disabled={p.estoque <= 0}
+            {resultados.map(p => {
+              const semEstoque = !p.temFicha && p.estoque <= 0;
+              return (
+              <button key={p.id} onClick={() => adicionar(p)} disabled={semEstoque}
                 style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%",
                   textAlign: "left", padding: "10px 16px", border: "none", borderTop: `1px solid ${C.grayLight}`,
-                  background: C.white, cursor: p.estoque <= 0 ? "not-allowed" : "pointer",
-                  fontFamily: "inherit", opacity: p.estoque <= 0 ? 0.5 : 1,
+                  background: C.white, cursor: semEstoque ? "not-allowed" : "pointer",
+                  fontFamily: "inherit", opacity: semEstoque ? 0.5 : 1,
                 }}>
                 <span>
                   <span style={{ display: "block", fontWeight: 600, fontSize: 14, color: C.navyDark }}>{p.nome}</span>
-                  <span style={{ display: "block", fontSize: 12, color: p.estoque <= 0 ? C.red : C.grayMid }}>
-                    {p.categoria} · {p.estoque <= 0 ? "sem estoque" : `${p.estoque} em estoque`}
+                  <span style={{ display: "block", fontSize: 12, color: semEstoque ? C.red : C.grayMid }}>
+                    {p.categoria} · {p.temFicha ? "feito sob encomenda (receita)" : semEstoque ? "sem estoque" : `${p.estoque} em estoque`}
                   </span>
                 </span>
                 <span style={{ fontWeight: 700, color: C.navyDark, fontSize: 14 }}>{fmt(p.preco)}</span>
               </button>
-            ))}
+              );
+            })}
             {resultados.length === 0 && (
               <div style={{ padding: 24, textAlign: "center", color: C.grayMid, fontSize: 13 }}>Nenhum produto encontrado.</div>
             )}
@@ -192,6 +223,17 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
 
         {/* ── Carrinho e pagamento ─────────────────── */}
         <div style={{ ...cartao, flex: "1 1 440px", padding: 20 }}>
+          {idOrcamento && (
+            <div style={{ background: C.yellowBg, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.navyDark, marginBottom: 12, display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <span>📋 Venda do <b>orçamento #{idOrcamento}</b>. Remova os itens que o cliente desistiu de levar.</span>
+              <button onClick={limpar} style={{ ...botaoClaro, padding: "4px 10px", fontSize: 12 }}>Descartar</button>
+            </div>
+          )}
+          <div style={{ marginBottom: 14 }}>
+            <label style={rotulo}>Cliente (opcional)</label>
+            <SeletorCliente valor={cliente ? cliente.id_cliente : ""} onChange={setCliente} estilo={{ width: "100%" }} />
+          </div>
+
           <div style={{ fontWeight: 600, color: C.navyDark, fontSize: 15, marginBottom: 10 }}>Carrinho ({carrinho.length})</div>
 
           {carrinho.length === 0 ? (

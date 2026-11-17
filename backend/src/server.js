@@ -8,6 +8,9 @@ const caixaRoutes = require('./routes/caixaRoutes');
 const vendaRoutes = require('./routes/vendaRoutes');
 const despesaRoutes = require('./routes/despesaRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
+const clienteRoutes = require('./routes/clienteRoutes');
+const orcamentoRoutes = require('./routes/orcamentoRoutes');
+const configRoutes = require('./routes/configRoutes');
 
 const app = express();
 
@@ -19,6 +22,9 @@ app.use('/api/caixa', caixaRoutes);
 app.use('/api/vendas', vendaRoutes);
 app.use('/api/despesas', despesaRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/clientes', clienteRoutes);
+app.use('/api/orcamentos', orcamentoRoutes);
+app.use('/api/configuracoes', configRoutes);
 
 // Rota base de teste
 app.get('/', (req, res) => {

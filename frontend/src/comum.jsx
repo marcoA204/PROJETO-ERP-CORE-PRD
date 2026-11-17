@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
 // Endereço do backend (se um dia mudar de porta/servidor, é só trocar aqui)
@@ -94,11 +94,40 @@ export const Icon = {
       <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   ),
+  users: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
+  clipboard: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+    </svg>
+  ),
+  book: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+    </svg>
+  ),
+  settings: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
+      <line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
+      <line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" />
+    </svg>
+  ),
 };
 
 
 // ── Helpers ──────────────────────────────────────────────────
 export const fmt = (n) => Number(n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+// Contas em CENTAVOS (inteiros) para não ter erro de arredondamento
+export const centavos = (v) => Math.round((Number(v) || 0) * 100);
+export const reais = (c) => c / 100;
 
 // Estilos reaproveitados pelas telas
 export const inputStyle = {
@@ -174,15 +203,17 @@ const NOMES_FORMA = {
 };
 
 export function ReciboVenda({ recibo, troco = 0, onClose }) {
-  const [telefone, setTelefone] = useState("");
+  const [telefone, setTelefone] = useState(recibo.cliente ? (recibo.cliente.whatsapp || "") : "");
   const [aviso, setAviso] = useState("");
   const [copiado, setCopiado] = useState(false);
-  const { loja, venda, itens, pagamentos = [], tem_pix, valor_pix, pix, pix_configurado } = recibo;
+  const { loja, cliente, venda, itens, pagamentos = [], tem_pix, valor_pix, pix, pix_configurado } = recibo;
   const cancelada = venda.status_venda === "CANCELADA";
 
   // Texto que será enviado ao cliente
   const montarMensagem = () => {
-    const linhas = [`*${loja}* - Resumo da compra`, `Venda #${venda.id_venda} - ${venda.data_venda}`, ""];
+    const linhas = [`*${loja}* - Resumo da compra`, `Venda #${venda.id_venda} - ${venda.data_venda}`];
+    if (cliente) linhas.push(`Cliente: ${cliente.nome}`);
+    linhas.push("");
     itens.forEach(i => linhas.push(`${i.quantidade}x ${i.produto} - ${fmt(i.subtotal)}`));
     linhas.push("");
     if (venda.valor_desconto > 0) linhas.push(`Desconto: ${fmt(venda.valor_desconto)}`);
@@ -226,7 +257,7 @@ export function ReciboVenda({ recibo, troco = 0, onClose }) {
         {cancelada ? `⛔ Venda #${venda.id_venda} cancelada` : `✅ Venda #${venda.id_venda}`}
       </div>
       <div style={{ color: C.grayMid, fontSize: 13, marginTop: 4, marginBottom: 16 }}>
-        {venda.data_venda}{cancelada && venda.motivo_cancelamento ? ` · Motivo: ${venda.motivo_cancelamento}` : ""}
+        {venda.data_venda}{cliente ? ` · ${cliente.nome}` : ""}{cancelada && venda.motivo_cancelamento ? ` · Motivo: ${venda.motivo_cancelamento}` : ""}
       </div>
 
       {itens.map((i, idx) => (
@@ -299,5 +330,44 @@ export function ReciboVenda({ recibo, troco = 0, onClose }) {
 
       <button onClick={onClose} style={{ ...botaoClaro, width: "100%", marginTop: 22 }}>Fechar</button>
     </Modal>
+  );
+}
+
+// ── WhatsApp: monta o link (devolve { erro, url }) ───────────
+export function linkWhatsApp(telefone, mensagem) {
+  const digitos = String(telefone || "").replace(/\D/g, "");
+  let numero = "";
+  if (digitos) {
+    numero = digitos.length <= 11 ? "55" + digitos : digitos; // acrescenta o código do Brasil
+    if (numero.length < 12 || numero.length > 13) {
+      return { erro: "Digite o DDD + número. Ex.: 11 91234-5678", url: "" };
+    }
+  }
+  // Sem número, o WhatsApp deixa você escolher o contato
+  return { erro: "", url: `https://wa.me/${numero}?text=${encodeURIComponent(mensagem)}` };
+}
+
+// ── Lista de clientes para escolher (PDV e Orçamentos) ───────
+// valor = id_cliente selecionado | onChange recebe o cliente completo (ou null)
+export function SeletorCliente({ valor, onChange, estilo }) {
+  const [clientes, setClientes] = useState([]);
+
+  useEffect(() => {
+    let ativo = true;
+    api("/clientes").then(r => { if (ativo && r.ok) setClientes(r.data); });
+    return () => { ativo = false; };
+  }, []);
+
+  return (
+    <select value={valor || ""} style={{ ...inputStyle, ...estilo }}
+      onChange={e => {
+        const id = e.target.value;
+        onChange(id ? clientes.find(c => String(c.id_cliente) === id) || null : null);
+      }}>
+      <option value="">Sem cliente</option>
+      {clientes.map(c => (
+        <option key={c.id_cliente} value={c.id_cliente}>{c.nome}{c.whatsapp ? ` — ${c.whatsapp}` : ""}</option>
+      ))}
+    </select>
   );
 }
