@@ -91,13 +91,13 @@ export default function Estoque({ products, atualizarLista }) {
           </thead>
           <tbody>
             {filtrados.map(p => {
-              const baixo = p.estoque <= p.minimo;
+              const baixo = !p.temFicha && p.estoque <= p.minimo;
               return (
                 <tr key={p.id} style={{ borderTop: `1px solid ${C.grayLight}` }}>
                   <td style={{ padding: "14px 16px", fontWeight: 600, color: C.navyDark, fontSize: 14 }}>{p.nome}</td>
                   <td style={{ padding: "14px 16px", color: C.grayMid, fontSize: 13 }}>{p.categoria}</td>
                   <td style={{ padding: "14px 16px" }}>
-                    <span style={{ fontWeight: 700, fontSize: 15, color: baixo ? C.red : C.navyDark }}>{p.estoque}</span>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: baixo ? C.red : C.navyDark }}>{p.temFicha ? "—" : p.estoque}</span>
                   </td>
                   <td style={{ padding: "14px 16px", color: C.grayMid, fontSize: 13 }}>{p.minimo}</td>
                   <td style={{ padding: "14px 16px", color: C.grayMid, fontSize: 13 }}>{fmt(p.custo || 0)}</td>
@@ -108,12 +108,12 @@ export default function Estoque({ products, atualizarLista }) {
                       padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600,
                       display: "inline-flex", alignItems: "center", gap: 4,
                     }}>
-                      {baixo ? <>{Icon.alert} Repor</> : "OK"}
+                      {p.temFicha ? "Receita" : baixo ? <>{Icon.alert} Repor</> : "OK"}
                     </span>
                   </td>
                   <td style={{ padding: "14px 16px" }}>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      <button onClick={() => abrirEntrada(p)} style={btnAcao}>{Icon.plus} Repor</button>
+                      {!p.temFicha && <button onClick={() => abrirEntrada(p)} style={btnAcao}>{Icon.plus} Repor</button>}
                       <button onClick={() => abrirEdicao(p)} style={btnAcao}>{Icon.edit} Editar</button>
                       <button onClick={() => inativar(p)} style={{ ...btnAcao, color: C.red }}>{Icon.trash} Inativar</button>
                     </div>

@@ -110,4 +110,48 @@ async function inativarProduto(req, res) {
     }
 }
 
-module.exports = { listarProdutos, cadastrarProduto, atualizarProduto, entradaEstoque, inativarProduto };
+// GET /api/produtos/:id/ficha  -> ingredientes da receita do produto
+async function obterFicha(req, res) {
+    try {
+        const id = lerId(req, res);
+        if (id === null) return;
+        const pool = await connectToDatabase();
+        const result = await pool.request()
+            .input('id', sql.Int, id)
+            .query(`
+                SELECT F.id_ingrediente, P.nome, P.preco_custo, F.quantidade
+                FROM dbo.FichaTecnica F
+                JOIN dbo.Produtos P ON P.id_produto = F.id_ingrediente
+                WHERE F.id_produto = @id
+                ORDER BY P.nome
+            `);
+        res.json(result.recordset);
+    } catch (erro) {
+        console.error("Erro ao buscar ficha técnica:", erro);
+        res.status(500).json({ erro: "Falha ao carregar a ficha técnica." });
+    }
+}
+
+// PUT /api/produtos/:id/ficha  { ingredientes: [{ id_ingrediente, quantidade }] }  (lista vazia remove a ficha)
+async function salvarFicha(req, res) {
+    try {
+        const id = lerId(req, res);
+        if (id === null) return;
+        const { ingredientes } = req.body;
+        if (!Array.isArray(ingredientes)) {
+            return res.status(400).json({ erro: "Envie a lista de ingredientes." });
+        }
+        const pool = await connectToDatabase();
+        await pool.request()
+            .input('id_produto', sql.Int, id)
+            .input('ingredientes_json', sql.NVarChar(sql.MAX), JSON.stringify(ingredientes))
+            .execute('sp_SalvarFichaTecnica');
+
+        res.json({ mensagem: ingredientes.length ? "Ficha técnica salva!" : "Ficha técnica removida." });
+    } catch (erro) {
+        console.error("Erro ao salvar ficha técnica:", erro);
+        responderErro(res, erro, "Falha ao salvar a ficha técnica.");
+    }
+}
+
+module.exports = { listarProdutos, cadastrarProduto, atualizarProduto, entradaEstoque, inativarProduto, obterFicha, salvarFicha };

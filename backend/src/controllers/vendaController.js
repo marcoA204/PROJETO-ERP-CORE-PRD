@@ -14,7 +14,7 @@ function lerId(req, res) {
 // Usa a procedure sp_RegistrarVenda (v4.0): a venda inteira em UMA chamada e UMA transação.
 async function registrarVenda(req, res) {
     try {
-        const { id_caixa, valor_desconto, itens, pagamentos } = req.body;
+        const { id_caixa, valor_desconto, itens, pagamentos, id_cliente, id_orcamento } = req.body;
         const pool = await connectToDatabase();
 
         const result = await pool.request()
@@ -22,6 +22,8 @@ async function registrarVenda(req, res) {
             .input('valor_desconto', sql.Decimal(10, 2), valor_desconto || 0)
             .input('itens_json', sql.NVarChar(sql.MAX), JSON.stringify(itens || []))
             .input('pagamentos_json', sql.NVarChar(sql.MAX), JSON.stringify(pagamentos || []))
+            .input('id_cliente', sql.Int, id_cliente || null)
+            .input('id_orcamento', sql.Int, id_orcamento || null)
             .output('id_venda', sql.Int)
             .execute('sp_RegistrarVenda');
 
@@ -44,7 +46,7 @@ async function listarVendas(req, res) {
                        id_venda,
                        CONVERT(CHAR(10), data_venda, 103) + ' ' + CONVERT(CHAR(5), data_venda, 108) AS data_venda,
                        turno, valor_total, valor_desconto, valor_a_receber,
-                       status_venda, motivo_cancelamento, qtd_itens
+                       status_venda, motivo_cancelamento, qtd_itens, cliente_nome
                 FROM dbo.vw_HistoricoVendas
                 ORDER BY id_venda DESC
             `);
@@ -88,8 +90,10 @@ async function obterRecibo(req, res) {
                        CONVERT(CHAR(10), V.data_venda, 103) + ' ' + CONVERT(CHAR(5), V.data_venda, 108) AS data_venda,
                        V.valor_total, V.valor_desconto,
                        (V.valor_total - V.valor_desconto) AS valor_a_receber,
-                       V.status_venda, V.motivo_cancelamento
+                       V.status_venda, V.motivo_cancelamento,
+                       C.nome AS cliente_nome, C.whatsapp AS cliente_whatsapp
                 FROM dbo.Vendas V
+                LEFT JOIN dbo.Clientes C ON C.id_cliente = V.id_cliente
                 WHERE V.id_venda = @id_venda;
 
                 SELECT P.nome AS produto, I.quantidade,
@@ -133,6 +137,7 @@ async function obterRecibo(req, res) {
 
         res.json({
             loja: process.env.LOJA_NOME || 'ERP-CORE',
+            cliente: venda.cliente_nome ? { nome: venda.cliente_nome, whatsapp: venda.cliente_whatsapp } : null,
             venda,
             itens: result.recordsets[1],
             pagamentos,

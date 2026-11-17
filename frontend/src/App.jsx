@@ -4,17 +4,25 @@ import PDV from "./telas/PDV.jsx";
 import Vendas from "./telas/Vendas.jsx";
 import Estoque from "./telas/Estoque.jsx";
 import ContasPagar from "./telas/ContasPagar.jsx";
+import Clientes from "./telas/Clientes.jsx";
+import Orcamentos from "./telas/Orcamentos.jsx";
+import FichaTecnica from "./telas/FichaTecnica.jsx";
+import Onboarding from "./telas/Onboarding.jsx";
 
 // ── Componente: Sidebar ──────────────────────────────────────
-function Sidebar({ active, onNav, onLogout }) {
+function Sidebar({ active, onNav, onLogout, nicho }) {
   const items = [
     { id: "dashboard", label: "Dashboard", icon: Icon.dashboard },
     { id: "pdv", label: "PDV", icon: Icon.pdv },
+    { id: "orcamentos", label: "Orçamentos", icon: Icon.clipboard },
     { id: "vendas", label: "Vendas", icon: Icon.history },
+    { id: "clientes", label: "Clientes", icon: Icon.users },
     { id: "estoque", label: "Estoque", icon: Icon.stock },
+    ...(nicho === "ALIMENTACAO" ? [{ id: "ficha", label: "Ficha Técnica", icon: Icon.book }] : []),
     { id: "contas", label: "Contas a Pagar", icon: Icon.bills },
     { id: "fluxo", label: "Fluxo de Caixa", icon: Icon.cashflow },
     { id: "cadastro", label: "Cadastrar Produto", icon: Icon.register },
+    { id: "config", label: "Configurações", icon: Icon.settings },
   ];
 
   return (
@@ -568,10 +576,31 @@ export default function App() {
   // Caixa aberto no momento (vem do banco, então não se perde ao trocar de tela ou apertar F5)
   const [idCaixa, setIdCaixa] = useState(null);
 
+  // Perfil do negócio (Varejo / Alimentação) e orçamento que está indo para o PDV
+  const [config, setConfig] = useState(null);
+  const [orcamentoPdv, setOrcamentoPdv] = useState(null);
+
+  const buscarConfig = async () => {
+    const r = await api("/configuracoes");
+    // se o backend estiver fora do ar, não trava o app na tela de carregamento
+    setConfig(r.ok ? r.data : { nicho: "VAREJO", onboarding_concluido: true });
+  };
+
+  // Chamada pela tela de perfil: devolve "" se deu certo ou o texto do erro
+  const salvarNicho = async (nicho) => {
+    const r = await api("/configuracoes", { method: "PUT", corpo: { nicho } });
+    if (!r.ok) return r.erro;
+    setConfig({ nicho: r.data.nicho, onboarding_concluido: true });
+    return "";
+  };
+
+  const abrirNoPdv = (orcamento) => { setOrcamentoPdv(orcamento); setTela("pdv"); };
+
   useEffect(() => {
     if (logado) {
       buscarProdutos();
       buscarCaixaAberto();
+      buscarConfig();
     }
   }, [logado]);
 
@@ -598,6 +627,7 @@ export default function App() {
         minimo: p.estoque_minimo,
         preco: p.preco_venda,
         custo: p.preco_custo,
+        temFicha: Boolean(p.tem_ficha),
       })));
     } catch (erro) {
       console.error("Erro ao buscar produtos do backend:", erro);
@@ -607,21 +637,33 @@ export default function App() {
   const renderTela = () => {
     switch (tela) {
       case "dashboard": return <Dashboard />;
-      case "pdv": return <PDV products={products} idCaixa={idCaixa} atualizarLista={buscarProdutos} setTransactions={setTransactions} irPara={setTela} />;
+      case "pdv": return <PDV products={products} idCaixa={idCaixa} atualizarLista={buscarProdutos} setTransactions={setTransactions} irPara={setTela} orcamentoPdv={orcamentoPdv} limparOrcamentoPdv={() => setOrcamentoPdv(null)} />;
+      case "orcamentos": return <Orcamentos products={products} abrirNoPdv={abrirNoPdv} />;
       case "vendas": return <Vendas atualizarLista={buscarProdutos} />;
+      case "clientes": return <Clientes />;
       case "estoque": return <Estoque products={products} atualizarLista={buscarProdutos} />;
+      case "ficha": return <FichaTecnica products={products} atualizarLista={buscarProdutos} />;
       case "contas": return <ContasPagar />;
       case "fluxo": return <FluxoCaixa transactions={transactions} setTransactions={setTransactions} idCaixa={idCaixa} setIdCaixa={setIdCaixa} />;
       case "cadastro": return <CadastroProduto products={products} atualizarLista={buscarProdutos} />;
+      case "config": return <Onboarding comoTela nichoAtual={config.nicho} onSalvar={salvarNicho} />;
       default: return null;
     }
   };
 
   if (!logado) return <Login onLogin={() => { localStorage.setItem("lf_logado", "true"); setLogado(true); }} />;
 
+  // Primeiro acesso: escolher o perfil do negócio
+  if (config === null) {
+    return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bgPage, color: C.grayMid, fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>Carregando...</div>;
+  }
+  if (!config.onboarding_concluido) {
+    return <Onboarding nichoAtual={config.nicho} onSalvar={salvarNicho} />;
+  }
+
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: "'Inter', 'Segoe UI', sans-serif", background: C.bgPage }}>
-      <Sidebar active={tela} onNav={setTela} onLogout={() => { localStorage.removeItem("lf_logado"); setLogado(false); }} />
+      <Sidebar active={tela} onNav={setTela} nicho={config.nicho} onLogout={() => { localStorage.removeItem("lf_logado"); setConfig(null); setLogado(false); }} />
       <main style={{ flex: 1, padding: "36px 40px", overflowY: "auto", width: "100%" }}>
         {renderTela()}
       </main>
@@ -699,4 +741,3 @@ function Login({ onLogin }) {
     </div>
   );
 }
-

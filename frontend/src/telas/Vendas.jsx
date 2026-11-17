@@ -60,7 +60,7 @@ export default function Vendas({ atualizarLista }) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: C.bgPage }}>
-              {["Venda", "Data", "Turno", "Itens", "Total", "Status", "Ações"].map(h => (
+              {["Venda", "Data", "Cliente", "Turno", "Itens", "Total", "Status", "Ações"].map(h => (
                 <th key={h} style={{ padding: "12px 16px", textAlign: "left", color: C.grayMid, fontSize: 12, fontWeight: 600 }}>{h}</th>
               ))}
             </tr>
@@ -70,6 +70,7 @@ export default function Vendas({ atualizarLista }) {
               <tr key={v.id_venda} style={{ borderTop: `1px solid ${C.grayLight}`, opacity: v.status_venda === "CANCELADA" ? 0.65 : 1 }}>
                 <td style={{ padding: "13px 16px", fontWeight: 700, color: C.navyDark, fontSize: 14 }}>#{v.id_venda}</td>
                 <td style={{ padding: "13px 16px", fontSize: 13, color: C.grayMid }}>{v.data_venda}</td>
+                <td style={{ padding: "13px 16px", fontSize: 13, color: C.navyDark }}>{v.cliente_nome || "—"}</td>
                 <td style={{ padding: "13px 16px", fontSize: 13, color: C.grayMid }}>#{v.turno}</td>
                 <td style={{ padding: "13px 16px", fontSize: 13, color: C.navyDark }}>{v.qtd_itens}</td>
                 <td style={{ padding: "13px 16px", fontSize: 13, fontWeight: 600, color: C.navyDark }}>{fmt(v.valor_a_receber)}</td>
@@ -85,10 +86,10 @@ export default function Vendas({ atualizarLista }) {
               </tr>
             ))}
             {!carregando && vendas.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: C.grayMid }}>Nenhuma venda registrada ainda.</td></tr>
+              <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: C.grayMid }}>Nenhuma venda registrada ainda.</td></tr>
             )}
             {carregando && (
-              <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: C.grayMid }}>Carregando...</td></tr>
+              <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: C.grayMid }}>Carregando...</td></tr>
             )}
           </tbody>
         </table>
