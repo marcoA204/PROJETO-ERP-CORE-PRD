@@ -11,6 +11,8 @@ const dashboardRoutes = require('./routes/dashboardRoutes');
 const clienteRoutes = require('./routes/clienteRoutes');
 const orcamentoRoutes = require('./routes/orcamentoRoutes');
 const configRoutes = require('./routes/configRoutes');
+const taxaRoutes = require('./routes/taxaRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 
 const app = express();
 
@@ -25,6 +27,8 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/clientes', clienteRoutes);
 app.use('/api/orcamentos', orcamentoRoutes);
 app.use('/api/configuracoes', configRoutes);
+app.use('/api/taxas', taxaRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Rota base de teste
 app.get('/', (req, res) => {

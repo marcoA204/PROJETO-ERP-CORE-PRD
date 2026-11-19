@@ -28,7 +28,17 @@ async function fecharCaixa(req, res) {
             .input('id_caixa', sql.Int, id_caixa)
             .execute('sp_FecharCaixa');
 
-        res.json({ mensagem: "Caixa fechado com sucesso!", resumo: result.recordset });
+        // Conciliação: bruto, taxa e líquido de cada forma de pagamento deste turno
+        const conciliacao = await pool.request()
+            .input('turno', sql.Int, id_caixa)
+            .query(`
+                SELECT forma_pagamento, qtd_pagamentos, valor_bruto, valor_taxa, valor_liquido
+                FROM dbo.vw_ConciliacaoCaixa
+                WHERE Turno = @turno
+                ORDER BY valor_bruto DESC
+            `);
+
+        res.json({ mensagem: "Caixa fechado com sucesso!", resumo: result.recordset, formas: conciliacao.recordset });
     } catch (erro) {
         console.error("Erro ao fechar caixa:", erro);
         responderErro(res, erro, "Falha ao fechar caixa.");

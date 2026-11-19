@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { C, Icon, fmt, api, inputStyle, botao, cartao, StatCard, COR_SITUACAO } from "./comum.jsx";
+import { C, Icon, fmt, api, inputStyle, botao, cartao, StatCard, COR_SITUACAO, NOMES_FORMA } from "./comum.jsx";
 import PDV from "./telas/PDV.jsx";
 import Vendas from "./telas/Vendas.jsx";
 import Estoque from "./telas/Estoque.jsx";
@@ -8,11 +8,14 @@ import Clientes from "./telas/Clientes.jsx";
 import Orcamentos from "./telas/Orcamentos.jsx";
 import FichaTecnica from "./telas/FichaTecnica.jsx";
 import Onboarding from "./telas/Onboarding.jsx";
+import Analises from "./telas/Analises.jsx";
+import Taxas from "./telas/Taxas.jsx";
 
 // ── Componente: Sidebar ──────────────────────────────────────
 function Sidebar({ active, onNav, onLogout, nicho }) {
   const items = [
     { id: "dashboard", label: "Dashboard", icon: Icon.dashboard },
+    { id: "analises", label: "Análises", icon: Icon.chart },
     { id: "pdv", label: "PDV", icon: Icon.pdv },
     { id: "orcamentos", label: "Orçamentos", icon: Icon.clipboard },
     { id: "vendas", label: "Vendas", icon: Icon.history },
@@ -122,7 +125,7 @@ function Dashboard() {
   const contasHoje = contas.resumo.find(c => c.situacao === "VENCE HOJE");
   const mesLabel = (m) => m.split("-").reverse().join("/");
   const entradas = resumo.faturamento;
-  const saidas = resumo.custo + resumo.despesas;
+  const saidas = resumo.custo + resumo.despesas + (resumo.taxas || 0);
   const saldo = resumo.lucro;
   const th = { padding: "10px 16px", textAlign: "left", color: C.grayMid, fontSize: 12, fontWeight: 600 };
   const td = { padding: "12px 16px", fontSize: 13, color: C.navyDark };
@@ -145,7 +148,7 @@ function Dashboard() {
       {/* Cards (mês atual) */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 32 }}>
         <StatCard label="Total Entradas" value={fmt(entradas)} sub={`vendas em ${mesLabel(resumo.mes)}`} color={C.green} icon={Icon.arrowUp} />
-        <StatCard label="Total Saídas" value={fmt(saidas)} sub="custo dos produtos + despesas" color={C.red} icon={Icon.arrowDown} />
+        <StatCard label="Total Saídas" value={fmt(saidas)} sub="custo + despesas + taxas" color={C.red} icon={Icon.arrowDown} />
         <StatCard label="Saldo" value={fmt(saldo)} sub={saldo >= 0 ? "lucro líquido do mês" : "prejuízo no mês"} color={saldo >= 0 ? C.green : C.red} />
         <StatCard label="Alertas Estoque" value={alertas.length} sub={alertas.length > 0 ? "produtos para repor" : "tudo em ordem"} color={alertas.length > 0 ? C.yellow : C.green} icon={alertas.length > 0 ? Icon.alert : null} />
       </div>
@@ -216,7 +219,7 @@ function Dashboard() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: C.bgPage }}>
-                {["Mês", "Faturamento", "Custo dos produtos", "Despesas", "Lucro líquido"].map(h => <th key={h} style={th}>{h}</th>)}
+                {["Mês", "Faturamento", "Custo dos produtos", "Despesas", "Taxas", "Lucro líquido"].map(h => <th key={h} style={th}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -226,6 +229,7 @@ function Dashboard() {
                   <td style={td}>{fmt(d.Faturamento_Real_Recebido)}</td>
                   <td style={td}>{fmt(d.Custo_Produtos)}</td>
                   <td style={td}>{fmt(d.Despesas_Operacionais)}</td>
+                  <td style={td}>{fmt(d.Taxas_Pagamento)}</td>
                   <td style={{ ...td, fontWeight: 700, color: d.Lucro_Liquido >= 0 ? C.green : C.red }}>{fmt(d.Lucro_Liquido)}</td>
                 </tr>
               ))}
@@ -300,7 +304,8 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa }) {
     if (!window.confirm("Fechar o caixa agora?")) return;
     const r = await api("/caixa/fechar", { method: "POST", corpo: { id_caixa: idCaixa } });
     if (!r.ok) { setErro(r.erro); return; }
-    setFechamento((r.data.resumo || [])[0] || null);
+    const resumo = (r.data.resumo || [])[0];
+    setFechamento(resumo ? { ...resumo, formas: r.data.formas || [] } : null);
     setIdCaixa(null);
     setTransactions([]); // limpa as movimentações da tela no fim do turno
     setTrocoInicial("");
@@ -358,6 +363,34 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa }) {
           <div>Faturamento do turno: <b>{fmt(fechamento.Faturamento_Total)}</b></div>
           <div>Troco inicial: <b>{fmt(fechamento.troco_inicial)}</b></div>
           <div>Dinheiro que deve estar na gaveta: <b>{fmt(fechamento.Dinheiro_Em_Caixa_Fisico)}</b></div>
+          {Number(fechamento.Taxas_Total) > 0 && (
+            <>
+              <div>Taxas da maquininha: <b style={{ color: C.red }}>- {fmt(fechamento.Taxas_Total)}</b></div>
+              <div>Faturamento líquido (o que realmente entra): <b>{fmt(fechamento.Faturamento_Liquido)}</b></div>
+            </>
+          )}
+          {fechamento.formas && fechamento.formas.length > 0 && (
+            <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12, background: C.white, borderRadius: 8, overflow: "hidden" }}>
+              <thead>
+                <tr style={{ background: C.bgPage }}>
+                  {["Forma de pagamento", "Vendas", "Bruto", "Taxa", "Líquido"].map(h => (
+                    <th key={h} style={{ padding: "8px 10px", textAlign: "left", color: C.grayMid, fontSize: 12, fontWeight: 600 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {fechamento.formas.map(f => (
+                  <tr key={f.forma_pagamento} style={{ borderTop: `1px solid ${C.grayLight}` }}>
+                    <td style={{ padding: "8px 10px", fontSize: 13 }}>{NOMES_FORMA[f.forma_pagamento] || f.forma_pagamento}</td>
+                    <td style={{ padding: "8px 10px", fontSize: 13 }}>{f.qtd_pagamentos}</td>
+                    <td style={{ padding: "8px 10px", fontSize: 13 }}>{fmt(f.valor_bruto)}</td>
+                    <td style={{ padding: "8px 10px", fontSize: 13, color: Number(f.valor_taxa) > 0 ? C.red : C.grayMid }}>{fmt(f.valor_taxa)}</td>
+                    <td style={{ padding: "8px 10px", fontSize: 13, fontWeight: 600 }}>{fmt(f.valor_liquido)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
@@ -637,6 +670,7 @@ export default function App() {
   const renderTela = () => {
     switch (tela) {
       case "dashboard": return <Dashboard />;
+      case "analises": return <Analises />;
       case "pdv": return <PDV products={products} idCaixa={idCaixa} atualizarLista={buscarProdutos} setTransactions={setTransactions} irPara={setTela} orcamentoPdv={orcamentoPdv} limparOrcamentoPdv={() => setOrcamentoPdv(null)} />;
       case "orcamentos": return <Orcamentos products={products} abrirNoPdv={abrirNoPdv} />;
       case "vendas": return <Vendas atualizarLista={buscarProdutos} />;
@@ -646,7 +680,12 @@ export default function App() {
       case "contas": return <ContasPagar />;
       case "fluxo": return <FluxoCaixa transactions={transactions} setTransactions={setTransactions} idCaixa={idCaixa} setIdCaixa={setIdCaixa} />;
       case "cadastro": return <CadastroProduto products={products} atualizarLista={buscarProdutos} />;
-      case "config": return <Onboarding comoTela nichoAtual={config.nicho} onSalvar={salvarNicho} />;
+      case "config": return (
+        <div>
+          <Onboarding comoTela nichoAtual={config.nicho} onSalvar={salvarNicho} />
+          <Taxas />
+        </div>
+      );
       default: return null;
     }
   };
