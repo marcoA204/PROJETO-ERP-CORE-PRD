@@ -47,7 +47,7 @@ app.get('/', (req, res) => {
     res.json({
         status: "Online",
         mensagem: "API do Logi Flow está rodando 100% no Node.js!",
-        ambiente: "Desenvolvimento"
+        ambiente: process.env.RENDER ? "Produção" : "Desenvolvimento" // o Render define RENDER=true
     });
 });
 
