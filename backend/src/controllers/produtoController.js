@@ -14,6 +14,10 @@ async function listarProdutos(req, res) {
     try {
         const pool = await connectToDatabase();
         const resultado = await pool.request().query('SELECT * FROM vw_CatalogoProdutos');
+        // Operador de caixa não enxerga preço de custo (nem pela API)
+        if (!req.usuario || req.usuario.perfil !== 'GERENTE') {
+            return res.json(resultado.recordset.map(({ preco_custo, ...resto }) => resto));
+        }
         res.json(resultado.recordset);
     } catch (erro) {
         console.error("Erro ao buscar produtos:", erro);
@@ -35,6 +39,7 @@ async function cadastrarProduto(req, res) {
             .input('codigo_barras', sql.VarChar(13), codigo_barras || null)
             .input('nome_categoria', sql.VarChar(100), nome_categoria || null)
             .input('nome_marca', sql.VarChar(100), nome_marca || null)
+            .input('usuario', sql.VarChar(50), req.usuario ? req.usuario.login : null)
             .execute('sp_SalvarProduto');
 
         res.status(201).json({ mensagem: `Produto '${nome}' cadastrado com sucesso!` });
@@ -83,6 +88,7 @@ async function entradaEstoque(req, res) {
             .input('id_produto', sql.Int, id)
             .input('quantidade', sql.Int, quantidade)
             .input('motivo', sql.VarChar(100), String(motivo || '').trim() || 'Reposicao de estoque')
+            .input('usuario', sql.VarChar(50), req.usuario ? req.usuario.login : null)
             .execute('sp_EntradaEstoque');
 
         res.json({ mensagem: "Entrada registrada!", ...(result.recordset[0] || {}) });

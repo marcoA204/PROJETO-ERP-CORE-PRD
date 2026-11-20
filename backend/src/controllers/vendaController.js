@@ -24,6 +24,7 @@ async function registrarVenda(req, res) {
             .input('pagamentos_json', sql.NVarChar(sql.MAX), JSON.stringify(pagamentos || []))
             .input('id_cliente', sql.Int, id_cliente || null)
             .input('id_orcamento', sql.Int, id_orcamento || null)
+            .input('usuario', sql.VarChar(50), req.usuario ? req.usuario.login : null)
             .output('id_venda', sql.Int)
             .execute('sp_RegistrarVenda');
 
@@ -67,6 +68,7 @@ async function cancelarVenda(req, res) {
         await pool.request()
             .input('id_venda', sql.Int, id)
             .input('motivo', sql.VarChar(200), String(req.body.motivo || '').trim().slice(0, 200) || null)
+            .input('usuario', sql.VarChar(50), req.usuario ? req.usuario.login : null)
             .execute('sp_CancelarVenda');
 
         res.json({ mensagem: "Venda cancelada e itens devolvidos ao estoque." });

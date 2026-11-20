@@ -11,7 +11,8 @@ async function obterDashboard(req, res) {
                        ISNULL(D.Faturamento_Real_Recebido, 0) AS faturamento,
                        ISNULL(D.Custo_Produtos, 0)            AS custo,
                        ISNULL(D.Despesas_Operacionais, 0)     AS despesas,
-                       ISNULL(D.Lucro_Liquido, 0)             AS lucro
+                       ISNULL(D.Lucro_Liquido, 0)             AS lucro,
+                       ISNULL(D.Taxas_Pagamento, 0)           AS taxas
                 FROM (SELECT 1 AS x) X
                 LEFT JOIN dbo.vw_RelatorioMensal_DRE D ON D.Mes = CONVERT(CHAR(7), SYSDATETIME(), 23)
             `),

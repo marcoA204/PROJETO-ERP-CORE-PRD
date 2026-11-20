@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { C, Icon, fmt, api, inputStyle, botao, cartao, StatCard, COR_SITUACAO } from "./comum.jsx";
+import { C, Icon, fmt, api, inputStyle, botao, cartao, StatCard, COR_SITUACAO, NOMES_FORMA, TOKEN_KEY } from "./comum.jsx";
 import PDV from "./telas/PDV.jsx";
 import Vendas from "./telas/Vendas.jsx";
 import Estoque from "./telas/Estoque.jsx";
@@ -8,11 +8,18 @@ import Clientes from "./telas/Clientes.jsx";
 import Orcamentos from "./telas/Orcamentos.jsx";
 import FichaTecnica from "./telas/FichaTecnica.jsx";
 import Onboarding from "./telas/Onboarding.jsx";
+import Analises from "./telas/Analises.jsx";
+import Taxas from "./telas/Taxas.jsx";
+import Login from "./telas/Login.jsx";
+import Usuarios from "./telas/Usuarios.jsx";
+import Auditoria from "./telas/Auditoria.jsx";
+import { AlterarSenha } from "./telas/Conta.jsx";
 
 // ── Componente: Sidebar ──────────────────────────────────────
-function Sidebar({ active, onNav, onLogout, nicho }) {
+function Sidebar({ active, onNav, onLogout, onSenha, nicho, usuario }) {
   const items = [
     { id: "dashboard", label: "Dashboard", icon: Icon.dashboard },
+    { id: "analises", label: "Análises", icon: Icon.chart },
     { id: "pdv", label: "PDV", icon: Icon.pdv },
     { id: "orcamentos", label: "Orçamentos", icon: Icon.clipboard },
     { id: "vendas", label: "Vendas", icon: Icon.history },
@@ -22,8 +29,12 @@ function Sidebar({ active, onNav, onLogout, nicho }) {
     { id: "contas", label: "Contas a Pagar", icon: Icon.bills },
     { id: "fluxo", label: "Fluxo de Caixa", icon: Icon.cashflow },
     { id: "cadastro", label: "Cadastrar Produto", icon: Icon.register },
+    { id: "usuarios", label: "Usuários", icon: Icon.shield },
+    { id: "auditoria", label: "Auditoria", icon: Icon.eye },
     { id: "config", label: "Configurações", icon: Icon.settings },
   ];
+  // Operador de caixa só enxerga PDV e Fluxo de Caixa (o backend também bloqueia o resto)
+  const visiveis = usuario.perfil === "GERENTE" ? items : items.filter(i => ["pdv", "fluxo"].includes(i.id));
 
   return (
     <aside style={{
@@ -50,7 +61,7 @@ function Sidebar({ active, onNav, onLogout, nicho }) {
       {/* Nav */}
       <nav style={{ padding: "16px 12px", flex: 1 }}>
         <div style={{ color: C.grayMid, fontSize: 10, fontWeight: 600, letterSpacing: 1, padding: "0 12px 8px", textTransform: "uppercase" }}>Menu</div>
-        {items.map((item) => {
+        {visiveis.map((item) => {
           const isActive = active === item.id;
           return (
             <button key={item.id} onClick={() => onNav(item.id)} style={{
@@ -70,6 +81,11 @@ function Sidebar({ active, onNav, onLogout, nicho }) {
       </nav>
 
       <div style={{ padding: "16px 12px", borderTop: `1px solid ${C.navyMid}` }}>
+        <div style={{ padding: "0 12px 12px" }}>
+          <div style={{ color: C.white, fontSize: 13, fontWeight: 600 }}>{usuario.nome}</div>
+          <div style={{ color: C.grayMid, fontSize: 11 }}>{usuario.perfil === "GERENTE" ? "Gerente / Proprietário" : "Operador de caixa"}</div>
+          <button onClick={onSenha} style={{ background: "none", border: "none", color: C.grayMid, cursor: "pointer", fontFamily: "inherit", fontSize: 12, padding: 0, marginTop: 4, textDecoration: "underline" }}>Alterar senha</button>
+        </div>
         <button onClick={onLogout} style={{
           width: "100%", padding: "10px 12px", borderRadius: 8, border: "none",
           background: "transparent", color: C.grayMid, cursor: "pointer",
@@ -95,10 +111,10 @@ function Dashboard() {
   // Busca os números no backend sempre que a tela abre
   useEffect(() => {
     let ativo = true;
-    fetch("http://localhost:3000/api/dashboard")
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error("Falha ao carregar o dashboard."))))
-      .then(d => { if (ativo) setDados(d); })
-      .catch(e => { if (ativo) setErro(e.message || "Falha na comunicação com o backend."); });
+    api("/dashboard").then(r => {
+      if (!ativo) return;
+      if (r.ok) setDados(r.data); else setErro(r.erro);
+    });
     return () => { ativo = false; };
   }, []);
 
@@ -122,7 +138,7 @@ function Dashboard() {
   const contasHoje = contas.resumo.find(c => c.situacao === "VENCE HOJE");
   const mesLabel = (m) => m.split("-").reverse().join("/");
   const entradas = resumo.faturamento;
-  const saidas = resumo.custo + resumo.despesas;
+  const saidas = resumo.custo + resumo.despesas + (resumo.taxas || 0);
   const saldo = resumo.lucro;
   const th = { padding: "10px 16px", textAlign: "left", color: C.grayMid, fontSize: 12, fontWeight: 600 };
   const td = { padding: "12px 16px", fontSize: 13, color: C.navyDark };
@@ -145,7 +161,7 @@ function Dashboard() {
       {/* Cards (mês atual) */}
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 32 }}>
         <StatCard label="Total Entradas" value={fmt(entradas)} sub={`vendas em ${mesLabel(resumo.mes)}`} color={C.green} icon={Icon.arrowUp} />
-        <StatCard label="Total Saídas" value={fmt(saidas)} sub="custo dos produtos + despesas" color={C.red} icon={Icon.arrowDown} />
+        <StatCard label="Total Saídas" value={fmt(saidas)} sub="custo + despesas + taxas" color={C.red} icon={Icon.arrowDown} />
         <StatCard label="Saldo" value={fmt(saldo)} sub={saldo >= 0 ? "lucro líquido do mês" : "prejuízo no mês"} color={saldo >= 0 ? C.green : C.red} />
         <StatCard label="Alertas Estoque" value={alertas.length} sub={alertas.length > 0 ? "produtos para repor" : "tudo em ordem"} color={alertas.length > 0 ? C.yellow : C.green} icon={alertas.length > 0 ? Icon.alert : null} />
       </div>
@@ -216,7 +232,7 @@ function Dashboard() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: C.bgPage }}>
-                {["Mês", "Faturamento", "Custo dos produtos", "Despesas", "Lucro líquido"].map(h => <th key={h} style={th}>{h}</th>)}
+                {["Mês", "Faturamento", "Custo dos produtos", "Despesas", "Taxas", "Lucro líquido"].map(h => <th key={h} style={th}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -226,6 +242,7 @@ function Dashboard() {
                   <td style={td}>{fmt(d.Faturamento_Real_Recebido)}</td>
                   <td style={td}>{fmt(d.Custo_Produtos)}</td>
                   <td style={td}>{fmt(d.Despesas_Operacionais)}</td>
+                  <td style={td}>{fmt(d.Taxas_Pagamento)}</td>
                   <td style={{ ...td, fontWeight: 700, color: d.Lucro_Liquido >= 0 ? C.green : C.red }}>{fmt(d.Lucro_Liquido)}</td>
                 </tr>
               ))}
@@ -274,7 +291,7 @@ function Dashboard() {
 }
 
 // ── Tela: Fluxo de Caixa (abrir/fechar turno e registrar despesas pagas) ──
-function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa }) {
+function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa, podeDespesa }) {
   const hoje = () => new Date().toLocaleDateString("en-CA"); // AAAA-MM-DD no fuso local
 
   const [filtro, setFiltro] = useState("todos");
@@ -300,7 +317,8 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa }) {
     if (!window.confirm("Fechar o caixa agora?")) return;
     const r = await api("/caixa/fechar", { method: "POST", corpo: { id_caixa: idCaixa } });
     if (!r.ok) { setErro(r.erro); return; }
-    setFechamento((r.data.resumo || [])[0] || null);
+    const resumo = (r.data.resumo || [])[0];
+    setFechamento(resumo ? { ...resumo, formas: r.data.formas || [] } : null);
     setIdCaixa(null);
     setTransactions([]); // limpa as movimentações da tela no fim do turno
     setTrocoInicial("");
@@ -351,6 +369,11 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa }) {
         )}
       </div>
 
+      {/* Operador não vê o painel de despesas: o erro do caixa aparece aqui */}
+      {!podeDespesa && erro && (
+        <div style={{ color: C.red, background: C.redBg, borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: 16 }}>{erro}</div>
+      )}
+
       {/* Resumo do turno que acabou de fechar */}
       {fechamento && (
         <div style={{ background: C.greenBg, border: `1px solid ${C.green}`, borderRadius: 10, padding: "14px 18px", marginBottom: 24, fontSize: 14, color: C.navyDark }}>
@@ -358,6 +381,34 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa }) {
           <div>Faturamento do turno: <b>{fmt(fechamento.Faturamento_Total)}</b></div>
           <div>Troco inicial: <b>{fmt(fechamento.troco_inicial)}</b></div>
           <div>Dinheiro que deve estar na gaveta: <b>{fmt(fechamento.Dinheiro_Em_Caixa_Fisico)}</b></div>
+          {Number(fechamento.Taxas_Total) > 0 && (
+            <>
+              <div>Taxas da maquininha: <b style={{ color: C.red }}>- {fmt(fechamento.Taxas_Total)}</b></div>
+              <div>Faturamento líquido (o que realmente entra): <b>{fmt(fechamento.Faturamento_Liquido)}</b></div>
+            </>
+          )}
+          {fechamento.formas && fechamento.formas.length > 0 && (
+            <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12, background: C.white, borderRadius: 8, overflow: "hidden" }}>
+              <thead>
+                <tr style={{ background: C.bgPage }}>
+                  {["Forma de pagamento", "Vendas", "Bruto", "Taxa", "Líquido"].map(h => (
+                    <th key={h} style={{ padding: "8px 10px", textAlign: "left", color: C.grayMid, fontSize: 12, fontWeight: 600 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {fechamento.formas.map(f => (
+                  <tr key={f.forma_pagamento} style={{ borderTop: `1px solid ${C.grayLight}` }}>
+                    <td style={{ padding: "8px 10px", fontSize: 13 }}>{NOMES_FORMA[f.forma_pagamento] || f.forma_pagamento}</td>
+                    <td style={{ padding: "8px 10px", fontSize: 13 }}>{f.qtd_pagamentos}</td>
+                    <td style={{ padding: "8px 10px", fontSize: 13 }}>{fmt(f.valor_bruto)}</td>
+                    <td style={{ padding: "8px 10px", fontSize: 13, color: Number(f.valor_taxa) > 0 ? C.red : C.grayMid }}>{fmt(f.valor_taxa)}</td>
+                    <td style={{ padding: "8px 10px", fontSize: 13, fontWeight: 600 }}>{fmt(f.valor_liquido)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
@@ -368,7 +419,8 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa }) {
         <StatCard label="Saldo" value={fmt(totalEntradas - totalSaidas)} color={totalEntradas - totalSaidas >= 0 ? C.green : C.red} sub="neste turno" />
       </div>
 
-      {/* Despesa paga na hora */}
+      {/* Despesa paga na hora (somente gerente) */}
+      {podeDespesa && (
       <div style={{ ...cartao, padding: 24, marginBottom: 28 }}>
         <div style={{ fontWeight: 600, color: C.navyDark, marginBottom: 16, fontSize: 15 }}>Registrar despesa paga</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
@@ -381,6 +433,7 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa }) {
         <div style={{ color: C.grayMid, fontSize: 12, marginTop: 8 }}>Para contas com vencimento futuro, use <b>Contas a Pagar</b>.</div>
         {erro && <div style={{ color: C.red, fontSize: 13, marginTop: 8 }}>{erro}</div>}
       </div>
+      )}
 
       {/* Filtro e tabela */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
@@ -445,36 +498,24 @@ function CadastroProduto({ products, atualizarLista }) {
       setErro("Preencha todos os campos."); setOk(false); return;
     }
 
-    try {
-      // Dispara o POST para o nosso servidor Node.js
-      const response = await fetch("http://localhost:3000/api/produtos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nome: form.nome,
-          nome_categoria: form.categoria,
-          estoque_inicial: Number(form.estoque),
-          estoque_minimo: Number(form.minimo),
-          preco_venda: Number(form.preco),
-          preco_custo: Number(form.custo)
-        })
-      });
+    const r = await api("/produtos", {
+      method: "POST",
+      corpo: {
+        nome: form.nome,
+        nome_categoria: form.categoria,
+        estoque_inicial: Number(form.estoque),
+        estoque_minimo: Number(form.minimo),
+        preco_venda: Number(form.preco),
+        preco_custo: Number(form.custo),
+      },
+    });
+    if (!r.ok) { setErro(r.erro); return; }
 
-      if (response.ok) {
-        setForm({ nome: "", categoria: "", estoque: "", minimo: "", custo: "", preco: "" });
-        setErro("");
-        setOk(true);
-        setTimeout(() => setOk(false), 3000);
-
-        // Pede para o App buscar a lista nova do banco!
-        atualizarLista();
-      } else {
-        const data = await response.json().catch(() => ({}));
-        setErro(data.erro || "Erro no servidor ao salvar produto.");
-      }
-    } catch (error) {
-      setErro("Falha na comunicação com o backend.");
-    }
+    setForm({ nome: "", categoria: "", estoque: "", minimo: "", custo: "", preco: "" });
+    setErro("");
+    setOk(true);
+    setTimeout(() => setOk(false), 3000);
+    atualizarLista(); // pede para o App buscar a lista nova do banco
   };
 
 
@@ -565,20 +606,57 @@ function CadastroProduto({ products, atualizarLista }) {
 
 // ── App principal ────────────────────────────────────────────
 export default function App() {
-  const [logado, setLogado] = useState(() => localStorage.getItem("lf_logado") === "true");
+  // Quem está logado (null = ninguém). O token fica no localStorage e vale 12 horas.
+  const [usuario, setUsuario] = useState(null);
+  const [verificando, setVerificando] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)));
+  const [trocandoSenha, setTrocandoSenha] = useState(false);
   const [tela, setTela] = useState("dashboard");
 
-  // Agora usamos estados normais do React, começando vazios
   const [products, setProducts] = useState([]);
   const [transactions, setTransactions] = useState([]);
-
-  // Toda vez que logar, busca os produtos reais do banco!
-  // Caixa aberto no momento (vem do banco, então não se perde ao trocar de tela ou apertar F5)
-  const [idCaixa, setIdCaixa] = useState(null);
+  const [idCaixa, setIdCaixa] = useState(null); // caixa aberto agora (vem do banco)
 
   // Perfil do negócio (Varejo / Alimentação) e orçamento que está indo para o PDV
   const [config, setConfig] = useState(null);
   const [orcamentoPdv, setOrcamentoPdv] = useState(null);
+
+  const entrar = (u) => { setUsuario(u); setTela(u.perfil === "GERENTE" ? "dashboard" : "pdv"); };
+
+  // Esquece tudo da sessão anterior (para o próximo usuário não ver dados do anterior)
+  const limparSessao = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    setUsuario(null); setConfig(null); setIdCaixa(null); setProducts([]);
+    setTransactions([]); setOrcamentoPdv(null); setTrocandoSenha(false);
+  };
+  const sair = async () => { await api("/auth/logout", { method: "POST" }); limparSessao(); };
+  const aoLogar = ({ token, usuario: u }) => { localStorage.setItem(TOKEN_KEY, token); entrar(u); };
+
+  // Ao abrir a página: se há token guardado, confere se ainda vale
+  useEffect(() => {
+    if (!localStorage.getItem(TOKEN_KEY)) return;
+    let ativo = true;
+    api("/auth/me").then(r => {
+      if (!ativo) return;
+      if (r.ok) entrar(r.data.usuario); else localStorage.removeItem(TOKEN_KEY);
+      setVerificando(false);
+    });
+    return () => { ativo = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // O backend respondeu "sessão expirada" em alguma chamada: volta para o login
+  useEffect(() => {
+    window.addEventListener("sessao-expirada", limparSessao);
+    return () => window.removeEventListener("sessao-expirada", limparSessao);
+  }, []);
+
+  // Depois de logar (e de ter trocado a senha provisória), carrega os dados
+  useEffect(() => {
+    if (usuario && !usuario.deve_trocar_senha) {
+      buscarProdutos();
+      buscarCaixaAberto();
+      buscarConfig();
+    }
+  }, [usuario]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const buscarConfig = async () => {
     const r = await api("/configuracoes");
@@ -596,47 +674,35 @@ export default function App() {
 
   const abrirNoPdv = (orcamento) => { setOrcamentoPdv(orcamento); setTela("pdv"); };
 
-  useEffect(() => {
-    if (logado) {
-      buscarProdutos();
-      buscarCaixaAberto();
-      buscarConfig();
-    }
-  }, [logado]);
-
   const buscarCaixaAberto = async () => {
-    try {
-      const response = await fetch("http://localhost:3000/api/caixa/atual");
-      const dados = await response.json();
-      setIdCaixa(dados.id_caixa || null);
-    } catch (erro) {
-      console.error("Erro ao buscar o caixa aberto:", erro);
-    }
+    const r = await api("/caixa/atual");
+    if (r.ok) setIdCaixa(r.data.id_caixa || null);
   };
 
   const buscarProdutos = async () => {
-    try {
-      const response = await fetch("http://localhost:3000/api/produtos");
-      const dados = await response.json();
-      setProducts(dados.map(p => ({
-        id: p.id_produto,
-        codigo_barras: p.codigo_barras,
-        nome: p.Produto,
-        categoria: p.Categoria,
-        estoque: p.estoque_atual,
-        minimo: p.estoque_minimo,
-        preco: p.preco_venda,
-        custo: p.preco_custo,
-        temFicha: Boolean(p.tem_ficha),
-      })));
-    } catch (erro) {
-      console.error("Erro ao buscar produtos do backend:", erro);
-    }
+    const r = await api("/produtos");
+    if (!r.ok) { console.error("Erro ao buscar produtos:", r.erro); return; }
+    // Traduz os nomes das colunas do SQL para o formato que as telas usam
+    setProducts(r.data.map(p => ({
+      id: p.id_produto,
+      codigo_barras: p.codigo_barras,
+      nome: p.Produto,
+      categoria: p.Categoria,
+      estoque: p.estoque_atual,
+      minimo: p.estoque_minimo,
+      preco: p.preco_venda,
+      custo: p.preco_custo, // o operador não recebe o custo (o backend remove)
+      temFicha: Boolean(p.tem_ficha),
+    })));
   };
 
   const renderTela = () => {
-    switch (tela) {
+    const ehGerente = usuario.perfil === "GERENTE";
+    // Rede de segurança: operador nunca renderiza telas de gerente (o backend também nega)
+    const telaAtual = ehGerente || ["pdv", "fluxo"].includes(tela) ? tela : "pdv";
+    switch (telaAtual) {
       case "dashboard": return <Dashboard />;
+      case "analises": return <Analises />;
       case "pdv": return <PDV products={products} idCaixa={idCaixa} atualizarLista={buscarProdutos} setTransactions={setTransactions} irPara={setTela} orcamentoPdv={orcamentoPdv} limparOrcamentoPdv={() => setOrcamentoPdv(null)} />;
       case "orcamentos": return <Orcamentos products={products} abrirNoPdv={abrirNoPdv} />;
       case "vendas": return <Vendas atualizarLista={buscarProdutos} />;
@@ -644,100 +710,50 @@ export default function App() {
       case "estoque": return <Estoque products={products} atualizarLista={buscarProdutos} />;
       case "ficha": return <FichaTecnica products={products} atualizarLista={buscarProdutos} />;
       case "contas": return <ContasPagar />;
-      case "fluxo": return <FluxoCaixa transactions={transactions} setTransactions={setTransactions} idCaixa={idCaixa} setIdCaixa={setIdCaixa} />;
+      case "fluxo": return <FluxoCaixa transactions={transactions} setTransactions={setTransactions} idCaixa={idCaixa} setIdCaixa={setIdCaixa} podeDespesa={ehGerente} />;
       case "cadastro": return <CadastroProduto products={products} atualizarLista={buscarProdutos} />;
-      case "config": return <Onboarding comoTela nichoAtual={config.nicho} onSalvar={salvarNicho} />;
+      case "usuarios": return <Usuarios usuarioAtual={usuario} />;
+      case "auditoria": return <Auditoria />;
+      case "config": return (
+        <div>
+          <Onboarding comoTela nichoAtual={config.nicho} onSalvar={salvarNicho} />
+          <Taxas />
+        </div>
+      );
       default: return null;
     }
   };
 
-  if (!logado) return <Login onLogin={() => { localStorage.setItem("lf_logado", "true"); setLogado(true); }} />;
+  const telaCheia = (conteudo) => (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bgPage, color: C.grayMid, fontFamily: "'Inter', 'Segoe UI', sans-serif", padding: 24, textAlign: "center" }}>{conteudo}</div>
+  );
 
-  // Primeiro acesso: escolher o perfil do negócio
-  if (config === null) {
-    return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bgPage, color: C.grayMid, fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>Carregando...</div>;
+  if (verificando) return telaCheia("Carregando...");
+  if (!usuario) return <Login onLogin={aoLogar} />;
+
+  // Senha provisória: não passa daqui sem trocar
+  if (usuario.deve_trocar_senha) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.navyDark }}>
+        <AlterarSenha forcado onConcluido={() => setUsuario({ ...usuario, deve_trocar_senha: false })} />
+      </div>
+    );
   }
+
+  if (config === null) return telaCheia("Carregando...");
   if (!config.onboarding_concluido) {
-    return <Onboarding nichoAtual={config.nicho} onSalvar={salvarNicho} />;
+    return usuario.perfil === "GERENTE"
+      ? <Onboarding nichoAtual={config.nicho} onSalvar={salvarNicho} />
+      : telaCheia("A configuração inicial ainda não foi concluída. Peça ao gerente para entrar no sistema primeiro.");
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", fontFamily: "'Inter', 'Segoe UI', sans-serif", background: C.bgPage }}>
-      <Sidebar active={tela} onNav={setTela} nicho={config.nicho} onLogout={() => { localStorage.removeItem("lf_logado"); setConfig(null); setLogado(false); }} />
-      <main style={{ flex: 1, padding: "36px 40px", overflowY: "auto", width: "100%" }}>
+    <div style={{ display: "flex", minHeight: "100vh", background: C.bgPage, fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
+      <Sidebar active={tela} onNav={setTela} nicho={config.nicho} usuario={usuario} onSenha={() => setTrocandoSenha(true)} onLogout={sair} />
+      <main style={{ flex: 1, padding: "36px 40px", overflowY: "auto" }}>
         {renderTela()}
       </main>
-    </div>
-  );
-}
-// ── Tela: Login ──────────────────────────────────────────────
-function Login({ onLogin }) {
-  const [user, setUser] = useState("");
-  const [pass, setPass] = useState("");
-  const [erro, setErro] = useState("");
-
-  const handleLogin = () => {
-    if (user === "admin" && pass === "admin123") {
-      onLogin();
-    } else {
-      setErro("Usuário ou senha incorretos.");
-    }
-  };
-
-  const inputStyle = {
-    width: "100%", padding: "12px 14px", borderRadius: 8,
-    border: `1.5px solid ${C.grayLight}`, fontSize: 14,
-    fontFamily: "inherit", color: C.navyDark, outline: "none",
-    boxSizing: "border-box", background: C.white,
-  };
-
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", justifyContent: "center",
-      minHeight: "100vh", background: C.navyDark, fontFamily: "'Inter', 'Segoe UI', sans-serif",
-    }}>
-      <div style={{
-        background: C.grayLight, borderRadius: 16, padding: "48px 40px",
-        width: "100%", maxWidth: 400, boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
-      }}>
-        {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 32 }}>
-          <img src="/logo.png" alt="LogiFlow" style={{ width: 150, height: 150, objectFit: "contain" }} />
-          <div>
-            <div style={{ color: C.navyDark, fontWeight: 700, fontSize: 22 }}>LogiFlow</div>
-            <div style={{ color: C.grayMid, fontSize: 13 }}>Gestão de Estoque</div>
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ color: C.navyDark, fontWeight: 700, fontSize: 20, marginBottom: 4 }}>Bem-vindo!</div>
-          <div style={{ color: C.grayMid, fontSize: 14 }}>Entre com suas credenciais para continuar</div>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div>
-            <label style={{ fontSize: 13, fontWeight: 600, color: C.navyDark, display: "block", marginBottom: 5 }}>Usuário</label>
-            <input placeholder="Digite seu usuário" value={user} onChange={e => setUser(e.target.value)} style={inputStyle} />
-          </div>
-          <div>
-            <label style={{ fontSize: 13, fontWeight: 600, color: C.navyDark, display: "block", marginBottom: 5 }}>Senha</label>
-            <input type="password" placeholder="Digite sua senha" value={pass} onChange={e => setPass(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleLogin()} style={inputStyle} />
-          </div>
-
-          {erro && <div style={{ color: C.red, fontSize: 13, background: C.redBg, borderRadius: 7, padding: "8px 12px" }}>{erro}</div>}
-
-          <button onClick={handleLogin} style={{
-            background: C.navyDark, color: C.white, border: "none", borderRadius: 8,
-            padding: "13px", fontSize: 15, fontWeight: 600, cursor: "pointer",
-            fontFamily: "inherit", marginTop: 4,
-          }}>Entrar</button>
-        </div>
-
-        <div style={{ marginTop: 20, padding: "12px", background: C.bgPage, borderRadius: 8, fontSize: 12, color: C.grayMid }}>
-          👤 Usuário: <strong>admin</strong> &nbsp;|&nbsp; 🔑 Senha: <strong>admin123</strong>
-        </div>
-      </div>
+      {trocandoSenha && <AlterarSenha onConcluido={() => setTrocandoSenha(false)} onCancelar={() => setTrocandoSenha(false)} />}
     </div>
   );
 }
