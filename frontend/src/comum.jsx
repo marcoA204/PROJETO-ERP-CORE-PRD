@@ -4,6 +4,9 @@ import { QRCodeSVG } from "qrcode.react";
 // Endereço do backend (se um dia mudar de porta/servidor, é só trocar aqui)
 export const API = "http://localhost:3000/api";
 
+// Onde o navegador guarda o token de login (vale 12 horas; o logout apaga)
+export const TOKEN_KEY = "erp_token";
+
 // ── Paleta de cores ──────────────────────────────────────────
 export const C = {
   navyDark: "#1A2B4A",
@@ -124,6 +127,16 @@ export const Icon = {
       <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
     </svg>
   ),
+  shield: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  ),
+  eye: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
 };
 
 
@@ -158,13 +171,19 @@ export const COR_SITUACAO = {
 // Chamada ao backend: sempre devolve { ok, data, erro } e nunca lança exceção
 export async function api(caminho, { method = "GET", corpo } = {}) {
   try {
+    const cabecalhos = {};
+    if (corpo) cabecalhos["Content-Type"] = "application/json";
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) cabecalhos.Authorization = `Bearer ${token}`;
     const resposta = await fetch(`${API}${caminho}`, {
       method,
-      headers: corpo ? { "Content-Type": "application/json" } : undefined,
+      headers: cabecalhos,
       body: corpo ? JSON.stringify(corpo) : undefined,
     });
     let data = {};
     try { data = await resposta.json(); } catch { /* resposta sem corpo */ }
+    // Sessão vencida ou token inválido: o App escuta este aviso e volta para o login
+    if (resposta.status === 401 && caminho !== "/auth/login") window.dispatchEvent(new Event("sessao-expirada"));
     return { ok: resposta.ok, data, erro: resposta.ok ? "" : (data.erro || "Erro no servidor.") };
   } catch {
     return { ok: false, data: {}, erro: "Falha na comunicação com o backend." };

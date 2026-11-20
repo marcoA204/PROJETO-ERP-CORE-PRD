@@ -13,11 +13,21 @@ const orcamentoRoutes = require('./routes/orcamentoRoutes');
 const configRoutes = require('./routes/configRoutes');
 const taxaRoutes = require('./routes/taxaRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
+const authRoutes = require('./routes/authRoutes');
+const usuarioRoutes = require('./routes/usuarioRoutes');
+const auditoriaRoutes = require('./routes/auditoriaRoutes');
+const { autenticar, autorizar } = require('./middleware/auth');
+const { garantirAdminInicial } = require('./utils/adminInicial');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Login é público. TUDO que vem depois exige sessão válida + permissão do perfil
+// (a matriz de permissões está em middleware/permissoes.js).
+app.use('/api/auth', authRoutes);
+app.use('/api', autenticar, autorizar);
 
 app.use('/api/produtos', produtoRoutes);
 app.use('/api/caixa', caixaRoutes);
@@ -29,6 +39,8 @@ app.use('/api/orcamentos', orcamentoRoutes);
 app.use('/api/configuracoes', configRoutes);
 app.use('/api/taxas', taxaRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/usuarios', usuarioRoutes);
+app.use('/api/auditoria', auditoriaRoutes);
 
 // Rota base de teste
 app.get('/', (req, res) => {
@@ -45,4 +57,4 @@ app.listen(PORTA, () => {
 });
 
 // Testa a conexão ao iniciar (se falhar, o erro já foi mostrado e a próxima requisição tenta de novo)
-connectToDatabase().catch(() => {});
+connectToDatabase().then(garantirAdminInicial).catch(() => {});
