@@ -138,7 +138,7 @@ async function obterRecibo(req, res) {
         }
 
         res.json({
-            loja: process.env.LOJA_NOME || 'ERP-CORE',
+            loja: process.env.LOJA_NOME || 'Logi Flow',
             cliente: venda.cliente_nome ? { nome: venda.cliente_nome, whatsapp: venda.cliente_whatsapp } : null,
             venda,
             itens: result.recordsets[1],

@@ -1,4 +1,5 @@
 const { connectToDatabase, sql } = require('../config/db');
+const { acentuar } = require('../utils/acentos');
 
 // GET /api/auditoria/estoque?dias=30&tipo=ENTRADA|SAIDA
 //   Histórico de movimentação de estoque: quem fez, quanto, e o saldo que ficou.
@@ -23,7 +24,7 @@ async function movimentosEstoque(req, res) {
                   AND (@tipo IS NULL OR tipo_movimento = @tipo)
                 ORDER BY id_movimento DESC
             `);
-        res.json(result.recordset);
+        res.json(result.recordset.map(m => ({ ...m, motivo: acentuar(m.motivo) })));
     } catch (erro) {
         console.error('Erro na auditoria de estoque:', erro);
         res.status(500).json({ erro: 'Falha ao carregar o histórico de estoque.' });
@@ -41,7 +42,8 @@ async function errosDoSistema(req, res) {
             FROM dbo.Log_Erros
             ORDER BY id_erro DESC
         `);
-        res.json(result.recordset);
+        // "detalhes" fica como está: são os parâmetros técnicos da chamada
+        res.json(result.recordset.map(e => ({ ...e, mensagem: acentuar(e.mensagem) })));
     } catch (erro) {
         console.error('Erro ao ler o log de erros:', erro);
         res.status(500).json({ erro: 'Falha ao carregar o log de erros.' });

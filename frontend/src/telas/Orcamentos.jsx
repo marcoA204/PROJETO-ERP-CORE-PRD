@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { C, fmt, api, inputStyle, botao, botaoClaro, cartao, Modal, SeletorCliente, centavos, reais, linkWhatsApp } from "../comum.jsx";
+import { C, fmt, api, inputStyle, botao, botaoClaro, cartao, Modal, SeletorCliente, centavos, reais, linkWhatsApp, rotulos } from "../comum.jsx";
 
 const COR = {
   ABERTO: [C.navyMid, C.bgPage],
@@ -240,7 +240,8 @@ function DetalheOrcamento({ dados, onFechar, onMudou, abrirNoPdv }) {
 }
 
 // ── Tela ─────────────────────────────────────────────────────
-export default function Orcamentos({ products, abrirNoPdv }) {
+export default function Orcamentos({ products, abrirNoPdv, nicho }) {
+  const titulo = rotulos(nicho).orcamentos;
   const [lista, setLista] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
@@ -270,7 +271,7 @@ export default function Orcamentos({ products, abrirNoPdv }) {
 
   return (
     <div>
-      <h1 style={{ color: C.navyDark, fontWeight: 700, fontSize: 22, marginBottom: 6 }}>Orçamentos</h1>
+      <h1 style={{ color: C.navyDark, fontWeight: 700, fontSize: 22, marginBottom: 6 }}>{titulo}</h1>
       <p style={{ color: C.grayMid, fontSize: 14, marginBottom: 24 }}>Monte, envie pelo WhatsApp e, quando o cliente aprovar, leve para o PDV com um clique. Orçamento não baixa estoque.</p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>

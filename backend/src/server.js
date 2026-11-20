@@ -46,14 +46,14 @@ app.use('/api/auditoria', auditoriaRoutes);
 app.get('/', (req, res) => {
     res.json({
         status: "Online",
-        mensagem: "API do LogiFlow está rodando 100% no Node.js!",
+        mensagem: "API do Logi Flow está rodando 100% no Node.js!",
         ambiente: "Desenvolvimento"
     });
 });
 
 const PORTA = process.env.PORT || 3000;
 app.listen(PORTA, () => {
-    console.log(`🚀 Servidor LogiFlow rodando na URL http://localhost:${PORTA}`);
+    console.log(`🚀 Servidor Logi Flow rodando na URL http://localhost:${PORTA}`);
 });
 
 // Testa a conexão ao iniciar (se falhar, o erro já foi mostrado e a próxima requisição tenta de novo)

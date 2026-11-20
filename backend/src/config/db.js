@@ -12,9 +12,14 @@ const dbConfig = {
         idleTimeoutMillis: 30000
     },
     options: {
-        encrypt: false,
-        trustServerCertificate: true // essencial para rodar o SQL Server localmente sem erros
-    }
+        // Local: DB_ENCRYPT=false e DB_TRUST_CERT=true (padrão se não estiver no .env).
+        // Azure SQL: DB_ENCRYPT=true e DB_TRUST_CERT=false (obrigatório).
+        encrypt: process.env.DB_ENCRYPT === 'true',
+        trustServerCertificate: process.env.DB_TRUST_CERT !== 'false'
+    },
+    // O Azure SQL gratuito "pausa" quando fica parado; dá mais tempo para ele acordar
+    connectionTimeout: 60000,
+    requestTimeout: 60000
 };
 
 // A conexão é criada UMA vez e reaproveitada (antes, cada requisição abria uma nova).

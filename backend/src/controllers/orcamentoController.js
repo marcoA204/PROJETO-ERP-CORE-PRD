@@ -57,7 +57,7 @@ async function obterOrcamento(req, res) {
         const orcamento = result.recordsets[0][0];
         if (!orcamento) return res.status(404).json({ erro: "Orçamento não encontrado." });
 
-        res.json({ loja: process.env.LOJA_NOME || 'ERP-CORE', orcamento, itens: result.recordsets[1] });
+        res.json({ loja: process.env.LOJA_NOME || 'Logi Flow', orcamento, itens: result.recordsets[1] });
     } catch (erro) {
         console.error("Erro ao buscar orçamento:", erro);
         res.status(500).json({ erro: "Falha ao carregar o orçamento." });

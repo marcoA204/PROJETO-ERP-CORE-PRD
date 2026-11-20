@@ -3,7 +3,8 @@
    Banco: ERP_PDV_Master (mesmo nome do .env, nao precisa mudar nada)
 
    COMO USAR
-   - Pode rodar varias vezes: NAO apaga dados. Tabelas existentes sao mantidas,
+   - So para banco NOVO (ou ainda na v4.0): NAO apaga dados. Se o banco ja
+     estiver na v4.4, o arquivo e pulado (trava logo apos o USE). Tabelas existentes sao mantidas,
      procedures e views sao atualizadas (CREATE OR ALTER).
    - Para comecar do zero (so em desenvolvimento) rode antes o arquivo
      ERP_CORE_00_reset_dev.sql
@@ -44,6 +45,22 @@ IF DB_ID('ERP_PDV_Master') IS NULL
 GO
 
 USE ERP_PDV_Master;
+GO
+
+/* TRAVA DE SEGURANCA
+   Se as etapas 4.1 a 4.4 ja foram aplicadas (a tabela Usuarios so existe a partir
+   da 4.4), rodar este arquivo de novo VOLTARIA procedures e views para a v4.0
+   (sp_RegistrarVenda, vw_CatalogoProdutos, vw_RelatorioMensal_DRE ...), quebrando
+   vendas, taxas e ficha tecnica. Nesse caso o arquivo inteiro e pulado:
+   SET NOEXEC ON faz o SQL Server apenas conferir os comandos, sem executar nada,
+   ate o SET NOEXEC OFF no fim do arquivo.
+   Para reaplicar tudo, use 00_aplicar_todas_na_ordem.sql (v4.0 -> etapa4). */
+IF OBJECT_ID('dbo.Usuarios', 'U') IS NOT NULL
+BEGIN
+    -- severidade 10 = aviso (nao e erro): assim o 00_aplicar_todas_na_ordem.sql segue para as etapas
+    RAISERROR('ATENCAO: o banco ja esta na v4.4. Este script v4.0 foi PULADO para nao desfazer as etapas 4.1-4.4. Nada foi alterado.', 10, 1) WITH NOWAIT;
+    SET NOEXEC ON;
+END
 GO
 
 /* ============================================================================
@@ -767,3 +784,7 @@ GO
    (Se o vendaController/caixaController antigos ainda fazem INSERT direto,
     de tambem:  GRANT INSERT, UPDATE ON SCHEMA::dbo TO erp_app;)
    ============================================================================ */
+
+-- Fim da trava de seguranca do inicio do arquivo (volta a executar normalmente)
+SET NOEXEC OFF;
+GO

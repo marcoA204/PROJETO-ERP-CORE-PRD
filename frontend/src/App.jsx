@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { C, Icon, fmt, api, inputStyle, botao, cartao, StatCard, COR_SITUACAO, NOMES_FORMA, TOKEN_KEY } from "./comum.jsx";
+import { C, Icon, fmt, api, inputStyle, botao, cartao, StatCard, COR_SITUACAO, NOMES_FORMA, TOKEN_KEY, rotulos } from "./comum.jsx";
 import PDV from "./telas/PDV.jsx";
 import Vendas from "./telas/Vendas.jsx";
 import Estoque from "./telas/Estoque.jsx";
@@ -16,19 +16,22 @@ import Auditoria from "./telas/Auditoria.jsx";
 import { AlterarSenha } from "./telas/Conta.jsx";
 
 // ── Componente: Sidebar ──────────────────────────────────────
-function Sidebar({ active, onNav, onLogout, onSenha, nicho, usuario }) {
+// No celular (≤ 768 px) vira uma gaveta: fica escondida e abre pelo botão ☰ da barra do topo
+// (as regras de tela pequena estão em index.css: .erp-menu / .erp-topo / .erp-main).
+function Sidebar({ active, onNav, onLogout, onSenha, nicho, usuario, aberto }) {
+  const r = rotulos(nicho);
   const items = [
     { id: "dashboard", label: "Dashboard", icon: Icon.dashboard },
     { id: "analises", label: "Análises", icon: Icon.chart },
     { id: "pdv", label: "PDV", icon: Icon.pdv },
-    { id: "orcamentos", label: "Orçamentos", icon: Icon.clipboard },
+    { id: "orcamentos", label: r.orcamentos, icon: Icon.clipboard },
     { id: "vendas", label: "Vendas", icon: Icon.history },
     { id: "clientes", label: "Clientes", icon: Icon.users },
-    { id: "estoque", label: "Estoque", icon: Icon.stock },
+    { id: "estoque", label: r.estoque, icon: Icon.stock },
     ...(nicho === "ALIMENTACAO" ? [{ id: "ficha", label: "Ficha Técnica", icon: Icon.book }] : []),
     { id: "contas", label: "Contas a Pagar", icon: Icon.bills },
     { id: "fluxo", label: "Fluxo de Caixa", icon: Icon.cashflow },
-    { id: "cadastro", label: "Cadastrar Produto", icon: Icon.register },
+    { id: "cadastro", label: r.cadastrar, icon: Icon.register },
     { id: "usuarios", label: "Usuários", icon: Icon.shield },
     { id: "auditoria", label: "Auditoria", icon: Icon.eye },
     { id: "config", label: "Configurações", icon: Icon.settings },
@@ -37,7 +40,7 @@ function Sidebar({ active, onNav, onLogout, onSenha, nicho, usuario }) {
   const visiveis = usuario.perfil === "GERENTE" ? items : items.filter(i => ["pdv", "fluxo"].includes(i.id));
 
   return (
-    <aside style={{
+    <aside className={`erp-menu${aberto ? " aberto" : ""}`} style={{
       width: 220, minHeight: "100vh", background: C.navyDark,
       display: "flex", flexDirection: "column", flexShrink: 0,
     }}>
@@ -49,10 +52,10 @@ function Sidebar({ active, onNav, onLogout, onSenha, nicho, usuario }) {
             background: C.navyDark, display: "flex", alignItems: "center",
             justifyContent: "center", fontSize: 18, fontWeight: 800, color: C.white,
           }}>
-            <img src="/logo.png" alt="LogiFlow" style={{ width: 125, height: 125, objectFit: "contain" }} />
+            <img src="/logo.png" alt="Logi Flow" style={{ width: 125, height: 125, objectFit: "contain" }} />
           </div>
           <div>
-            <div style={{ color: C.white, fontWeight: 700, fontSize: 17, letterSpacing: 0.5 }}>LogiFlow</div>
+            <div style={{ color: C.white, fontWeight: 700, fontSize: 17, letterSpacing: 0.5 }}>Logi Flow</div>
             <div style={{ color: C.grayMid, fontSize: 11 }}>Gestão de Estoque</div>
           </div>
         </div>
@@ -300,10 +303,20 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa, podeDe
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [fechamento, setFechamento] = useState(null); // resumo do último turno fechado
+  const [turno, setTurno] = useState(null); // totais reais do turno aberto (vêm do banco)
 
   const filtrados = transactions.filter(t => filtro === "todos" || t.tipo === filtro);
-  const totalEntradas = transactions.filter(t => t.tipo === "entrada").reduce((s, t) => s + t.valor, 0);
-  const totalSaidas = transactions.filter(t => t.tipo === "saida").reduce((s, t) => s + t.valor, 0);
+
+  // Os totais vêm do banco: não zeram com F5 nem ao trocar de tela
+  const carregarTurno = async () => {
+    const r = await api("/caixa/atual");
+    if (r.ok) setTurno(r.data.id_caixa ? r.data : null);
+  };
+  useEffect(() => {
+    let ativo = true;
+    api("/caixa/atual").then(r => { if (ativo && r.ok) setTurno(r.data.id_caixa ? r.data : null); });
+    return () => { ativo = false; };
+  }, [idCaixa]);
 
   const handleAbrirCaixa = async () => {
     const r = await api("/caixa/abrir", { method: "POST", corpo: { troco_inicial: Number(trocoInicial) || 0 } });
@@ -344,6 +357,7 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa, podeDe
     }]);
     setForm({ descricao: "", valor: "" });
     setErro("");
+    carregarTurno();
   };
 
   return (
@@ -412,12 +426,19 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa, podeDe
         </div>
       )}
 
-      {/* Resumo */}
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 28 }}>
-        <StatCard label="Entradas" value={fmt(totalEntradas)} color={C.green} sub="vendas desde que a página abriu" icon={Icon.arrowUp} />
-        <StatCard label="Saídas" value={fmt(totalSaidas)} color={C.red} sub="despesas pagas" icon={Icon.arrowDown} />
-        <StatCard label="Saldo" value={fmt(totalEntradas - totalSaidas)} color={totalEntradas - totalSaidas >= 0 ? C.green : C.red} sub="neste turno" />
-      </div>
+      {/* Resumo do turno aberto (totais do banco) */}
+      {turno && (
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 28 }}>
+          <StatCard label="Vendas do turno" value={fmt(turno.vendas_turno)} color={C.green}
+            sub={`${turno.qtd_vendas} venda(s) no turno #${turno.id_caixa}`} icon={Icon.arrowUp} />
+          <StatCard label="Dinheiro na gaveta" value={fmt(turno.dinheiro_gaveta)} color={C.grayMid}
+            sub={`troco inicial ${fmt(turno.troco_inicial)} + dinheiro recebido`} />
+          {podeDespesa && (
+            <StatCard label="Despesas pagas" value={fmt(turno.despesas_pagas)} color={C.red}
+              sub="desde o dia da abertura" icon={Icon.arrowDown} />
+          )}
+        </div>
+      )}
 
       {/* Despesa paga na hora (somente gerente) */}
       {podeDespesa && (
@@ -435,8 +456,9 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa, podeDe
       </div>
       )}
 
-      {/* Filtro e tabela */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+      {/* Filtro e tabela (o que foi lançado nesta sessão; o histórico completo fica em Vendas e Contas a Pagar) */}
+      <div style={{ fontWeight: 600, color: C.navyDark, fontSize: 15, marginBottom: 10 }}>Lançamentos desta sessão</div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
         {[["todos", "Todos"], ["entrada", "Entradas"], ["saida", "Saídas"]].map(([val, label]) => (
           <button key={val} onClick={() => setFiltro(val)} style={{
             padding: "7px 16px", borderRadius: 20, border: `1.5px solid ${filtro === val ? C.navyDark : C.grayLight}`,
@@ -488,20 +510,29 @@ function FluxoCaixa({ transactions, setTransactions, idCaixa, setIdCaixa, podeDe
 }
 
 // ── Tela: Cadastro de Produto ────────────────────────────────
-function CadastroProduto({ products, atualizarLista }) {
-  const [form, setForm] = useState({ nome: "", categoria: "", estoque: "", minimo: "", custo: "", preco: "" });
+const FORM_PRODUTO_VAZIO = { nome: "", codigo: "", categoria: "", estoque: "", minimo: "", custo: "", preco: "" };
+
+function CadastroProduto({ products, atualizarLista, nicho }) {
+  const r = rotulos(nicho);
+  const [form, setForm] = useState(FORM_PRODUTO_VAZIO);
   const [erro, setErro] = useState("");
   const [ok, setOk] = useState(false);
 
   const handleSalvar = async () => {
     if (!form.nome || !form.categoria || !form.estoque || !form.minimo || form.custo === "" || !form.preco) {
-      setErro("Preencha todos os campos."); setOk(false); return;
+      setErro("Preencha todos os campos obrigatórios (*)."); setOk(false); return;
+    }
+    // Código de barras é opcional; sem ele o sistema gera um código interno
+    const codigo = form.codigo.trim();
+    if (codigo && !/^\d{8,13}$/.test(codigo)) {
+      setErro("O código de barras deve ter de 8 a 13 números (EAN/UPC), sem letras nem espaços."); setOk(false); return;
     }
 
-    const r = await api("/produtos", {
+    const resp = await api("/produtos", {
       method: "POST",
       corpo: {
         nome: form.nome,
+        codigo_barras: codigo || null,
         nome_categoria: form.categoria,
         estoque_inicial: Number(form.estoque),
         estoque_minimo: Number(form.minimo),
@@ -509,9 +540,9 @@ function CadastroProduto({ products, atualizarLista }) {
         preco_custo: Number(form.custo),
       },
     });
-    if (!r.ok) { setErro(r.erro); return; }
+    if (!resp.ok) { setErro(resp.erro); return; }
 
-    setForm({ nome: "", categoria: "", estoque: "", minimo: "", custo: "", preco: "" });
+    setForm(FORM_PRODUTO_VAZIO);
     setErro("");
     setOk(true);
     setTimeout(() => setOk(false), 3000);
@@ -528,36 +559,42 @@ function CadastroProduto({ products, atualizarLista }) {
 
   return (
     <div>
-      <h1 style={{ color: C.navyDark, fontWeight: 700, fontSize: 22, marginBottom: 6 }}>Cadastrar Produto</h1>
-      <p style={{ color: C.grayMid, fontSize: 14, marginBottom: 24 }}>Adicione novos produtos ao sistema</p>
+      <h1 style={{ color: C.navyDark, fontWeight: 700, fontSize: 22, marginBottom: 6 }}>{r.cadastrar}</h1>
+      <p style={{ color: C.grayMid, fontSize: 14, marginBottom: 24 }}>{r.subtituloCadastro}</p>
 
       {/* Formulário */}
       <div style={{ background: C.bgCard, borderRadius: 12, padding: 28, boxShadow: "0 1px 4px rgba(26,43,74,0.08)", maxWidth: "100%", marginBottom: 32 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
-            <label style={{ fontSize: 13, fontWeight: 600, color: C.navyDark, display: "block", marginBottom: 5 }}>Nome do Produto *</label>
-            <input placeholder="Ex: Notebook Dell" value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} style={inputStyle} />
+            <label style={{ fontSize: 13, fontWeight: 600, color: C.navyDark, display: "block", marginBottom: 5 }}>Nome do {r.item} *</label>
+            <input placeholder={r.exemploNome} value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} style={inputStyle} />
+          </div>
+          <div>
+            <label style={{ fontSize: 13, fontWeight: 600, color: C.navyDark, display: "block", marginBottom: 5 }}>Código de barras (opcional)</label>
+            <input placeholder="Passe o leitor ou digite o EAN da embalagem" inputMode="numeric" maxLength={13}
+              value={form.codigo} onChange={e => setForm({ ...form, codigo: e.target.value.replace(/\D/g, "") })} style={inputStyle} />
+            <div style={{ color: C.grayMid, fontSize: 12, marginTop: 4 }}>Deixe em branco para o sistema gerar um código interno.</div>
           </div>
           <div>
             <label style={{ fontSize: 13, fontWeight: 600, color: C.navyDark, display: "block", marginBottom: 5 }}>Categoria *</label>
-            <input placeholder="Ex: Eletrônicos" value={form.categoria} onChange={e => setForm({ ...form, categoria: e.target.value })} style={inputStyle} />
+            <input placeholder={r.exemploCategoria} value={form.categoria} onChange={e => setForm({ ...form, categoria: e.target.value })} style={inputStyle} />
           </div>
-          <div style={{ display: "flex", gap: 12 }}>
-            <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 140px" }}>
               <label style={{ fontSize: 13, fontWeight: 600, color: C.navyDark, display: "block", marginBottom: 5 }}>Estoque Inicial *</label>
               <input type="number" placeholder="0" min="0" value={form.estoque} onChange={e => setForm({ ...form, estoque: e.target.value })} style={inputStyle} />
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: "1 1 140px" }}>
               <label style={{ fontSize: 13, fontWeight: 600, color: C.navyDark, display: "block", marginBottom: 5 }}>Estoque Mínimo *</label>
               <input type="number" placeholder="0" min="0" value={form.minimo} onChange={e => setForm({ ...form, minimo: e.target.value })} style={inputStyle} />
             </div>
           </div>
-          <div style={{ display: "flex", gap: 12 }}>
-            <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 140px" }}>
               <label style={{ fontSize: 13, fontWeight: 600, color: C.navyDark, display: "block", marginBottom: 5 }}>Preço de Custo (R$) *</label>
               <input type="number" placeholder="0.00" min="0" step="0.01" value={form.custo} onChange={e => setForm({ ...form, custo: e.target.value })} style={inputStyle} />
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: "1 1 140px" }}>
               <label style={{ fontSize: 13, fontWeight: 600, color: C.navyDark, display: "block", marginBottom: 5 }}>Preço de Venda (R$) *</label>
               <input type="number" placeholder="0.00" min="0" step="0.01" value={form.preco} onChange={e => setForm({ ...form, preco: e.target.value })} style={inputStyle} />
             </div>
@@ -576,12 +613,12 @@ function CadastroProduto({ products, atualizarLista }) {
 
       {/* Lista de produtos */}
       <div>
-        <div style={{ fontWeight: 600, color: C.navyDark, fontSize: 15, marginBottom: 12 }}>Produtos Cadastrados ({products.length})</div>
+        <div style={{ fontWeight: 600, color: C.navyDark, fontSize: 15, marginBottom: 12 }}>Cadastrados ({products.length} {r.itens})</div>
         <div style={{ background: C.bgCard, borderRadius: 12, boxShadow: "0 1px 4px rgba(26,43,74,0.08)", overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: C.bgPage }}>
-                {["Produto", "Categoria", "Estoque", "Mínimo", "Preço"].map((h, i) => (
+                {[r.item, "Código", "Categoria", "Estoque", "Mínimo", "Preço"].map((h, i) => (
                   <th key={i} style={{ padding: "11px 16px", textAlign: "left", color: C.grayMid, fontSize: 12, fontWeight: 600 }}>{h}</th>
                 ))}
               </tr>
@@ -590,6 +627,7 @@ function CadastroProduto({ products, atualizarLista }) {
               {products.map(p => (
                 <tr key={p.id} style={{ borderTop: `1px solid ${C.grayLight}` }}>
                   <td style={{ padding: "12px 16px", fontWeight: 600, color: C.navyDark, fontSize: 13 }}>{p.nome}</td>
+                  <td style={{ padding: "12px 16px", color: C.grayMid, fontSize: 12, fontFamily: "monospace" }}>{p.codigo_barras}</td>
                   <td style={{ padding: "12px 16px", color: C.grayMid, fontSize: 13 }}>{p.categoria}</td>
                   <td style={{ padding: "12px 16px", color: p.estoque < p.minimo ? C.red : C.navyDark, fontWeight: 600, fontSize: 13 }}>{p.estoque}</td>
                   <td style={{ padding: "12px 16px", color: C.grayMid, fontSize: 13 }}>{p.minimo}</td>
@@ -611,6 +649,7 @@ export default function App() {
   const [verificando, setVerificando] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)));
   const [trocandoSenha, setTrocandoSenha] = useState(false);
   const [tela, setTela] = useState("dashboard");
+  const [menuAberto, setMenuAberto] = useState(false); // gaveta do menu no celular
 
   const [products, setProducts] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -692,6 +731,7 @@ export default function App() {
       minimo: p.estoque_minimo,
       preco: p.preco_venda,
       custo: p.preco_custo, // o operador não recebe o custo (o backend remove)
+      custoReceita: p.custo_receita, // soma dos ingredientes (só produtos com ficha; também só para o gerente)
       temFicha: Boolean(p.tem_ficha),
     })));
   };
@@ -704,14 +744,14 @@ export default function App() {
       case "dashboard": return <Dashboard />;
       case "analises": return <Analises />;
       case "pdv": return <PDV products={products} idCaixa={idCaixa} atualizarLista={buscarProdutos} setTransactions={setTransactions} irPara={setTela} orcamentoPdv={orcamentoPdv} limparOrcamentoPdv={() => setOrcamentoPdv(null)} />;
-      case "orcamentos": return <Orcamentos products={products} abrirNoPdv={abrirNoPdv} />;
+      case "orcamentos": return <Orcamentos products={products} abrirNoPdv={abrirNoPdv} nicho={config.nicho} />;
       case "vendas": return <Vendas atualizarLista={buscarProdutos} />;
       case "clientes": return <Clientes />;
-      case "estoque": return <Estoque products={products} atualizarLista={buscarProdutos} />;
+      case "estoque": return <Estoque products={products} atualizarLista={buscarProdutos} nicho={config.nicho} />;
       case "ficha": return <FichaTecnica products={products} atualizarLista={buscarProdutos} />;
       case "contas": return <ContasPagar />;
       case "fluxo": return <FluxoCaixa transactions={transactions} setTransactions={setTransactions} idCaixa={idCaixa} setIdCaixa={setIdCaixa} podeDespesa={ehGerente} />;
-      case "cadastro": return <CadastroProduto products={products} atualizarLista={buscarProdutos} />;
+      case "cadastro": return <CadastroProduto products={products} atualizarLista={buscarProdutos} nicho={config.nicho} />;
       case "usuarios": return <Usuarios usuarioAtual={usuario} />;
       case "auditoria": return <Auditoria />;
       case "config": return (
@@ -734,7 +774,7 @@ export default function App() {
   // Senha provisória: não passa daqui sem trocar
   if (usuario.deve_trocar_senha) {
     return (
-      <div style={{ minHeight: "100vh", background: C.navyDark }}>
+      <div style={{ minHeight: "100vh", background: C.navyDark, fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
         <AlterarSenha forcado onConcluido={() => setUsuario({ ...usuario, deve_trocar_senha: false })} />
       </div>
     );
@@ -748,9 +788,18 @@ export default function App() {
   }
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: C.bgPage, fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
-      <Sidebar active={tela} onNav={setTela} nicho={config.nicho} usuario={usuario} onSenha={() => setTrocandoSenha(true)} onLogout={sair} />
-      <main style={{ flex: 1, padding: "36px 40px", overflowY: "auto" }}>
+    <div className="erp-app" style={{ display: "flex", minHeight: "100vh", background: C.bgPage, fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
+      {/* Barra do topo: só aparece no celular (index.css), com o botão que abre o menu */}
+      <header className="erp-topo" style={{ background: C.navyDark, color: C.white, padding: "10px 16px", alignItems: "center", gap: 12 }}>
+        <button onClick={() => setMenuAberto(true)} aria-label="Abrir menu"
+          style={{ background: "none", border: "none", color: C.white, fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 4 }}>☰</button>
+        <span style={{ fontWeight: 700 }}>Logi Flow</span>
+      </header>
+      <div className={`erp-fundo${menuAberto ? " aberto" : ""}`} onClick={() => setMenuAberto(false)} />
+      <Sidebar active={tela} onNav={(id) => { setTela(id); setMenuAberto(false); }} aberto={menuAberto}
+        nicho={config.nicho} usuario={usuario}
+        onSenha={() => { setTrocandoSenha(true); setMenuAberto(false); }} onLogout={sair} />
+      <main className="erp-main" style={{ flex: 1, padding: "36px 40px", overflowY: "auto", minWidth: 0 }}>
         {renderTela()}
       </main>
       {trocandoSenha && <AlterarSenha onConcluido={() => setTrocandoSenha(false)} onCancelar={() => setTrocandoSenha(false)} />}

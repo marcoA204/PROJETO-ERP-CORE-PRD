@@ -38,7 +38,7 @@ export default function Onboarding({ nichoAtual, onSalvar, comoTela = false }) {
   const conteudo = (
     <div style={{ width: "100%", maxWidth: 760 }}>
       <h1 style={{ color: C.navyDark, fontWeight: 700, fontSize: comoTela ? 22 : 28, marginBottom: 6 }}>
-        {comoTela ? "Configurações" : "Bem-vindo ao ERP-CORE 👋"}
+        {comoTela ? "Configurações" : "Bem-vindo ao Logi Flow 👋"}
       </h1>
       <p style={{ color: C.grayMid, fontSize: 14, marginBottom: 24 }}>
         {comoTela ? "Perfil do seu negócio. Você pode mudar quando quiser." : "Para começar, conte como é o seu negócio. O sistema liga só o que você precisa."}

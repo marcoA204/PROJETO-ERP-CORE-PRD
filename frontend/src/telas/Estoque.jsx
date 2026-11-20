@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { C, Icon, fmt, api, inputStyle, botao, botaoClaro, cartao, Modal } from "../comum.jsx";
+import { C, Icon, fmt, api, inputStyle, botao, botaoClaro, cartao, Modal, rotulos } from "../comum.jsx";
 
-export default function Estoque({ products, atualizarLista }) {
+export default function Estoque({ products, atualizarLista, nicho }) {
+  const r = rotulos(nicho);
   const [busca, setBusca] = useState("");
   const [modal, setModal] = useState(null); // { tipo: "entrada" | "editar", produto }
   const [form, setForm] = useState({});
@@ -9,9 +10,11 @@ export default function Estoque({ products, atualizarLista }) {
   const [aviso, setAviso] = useState("");
   const [salvando, setSalvando] = useState(false);
 
+  const termo = busca.trim().toLowerCase();
   const filtrados = products.filter(p =>
-    p.nome.toLowerCase().includes(busca.toLowerCase()) ||
-    p.categoria.toLowerCase().includes(busca.toLowerCase())
+    p.nome.toLowerCase().includes(termo) ||
+    p.categoria.toLowerCase().includes(termo) ||
+    (p.codigo_barras || "").includes(termo)
   );
 
   const mostrarAviso = (texto) => { setAviso(texto); setTimeout(() => setAviso(""), 3500); };
@@ -71,10 +74,10 @@ export default function Estoque({ products, atualizarLista }) {
 
   return (
     <div>
-      <h1 style={{ color: C.navyDark, fontWeight: 700, fontSize: 22, marginBottom: 6 }}>Estoque</h1>
-      <p style={{ color: C.grayMid, fontSize: 14, marginBottom: 24 }}>{products.length} produtos ativos</p>
+      <h1 style={{ color: C.navyDark, fontWeight: 700, fontSize: 22, marginBottom: 6 }}>{r.estoque}</h1>
+      <p style={{ color: C.grayMid, fontSize: 14, marginBottom: 24 }}>{products.length} {r.itens} ativos</p>
 
-      <input placeholder="Buscar produto ou categoria..." value={busca} onChange={e => setBusca(e.target.value)}
+      <input placeholder="Buscar por nome, categoria ou código de barras..." value={busca} onChange={e => setBusca(e.target.value)}
         style={{ ...campoCheio, maxWidth: 360, marginBottom: 16 }} />
 
       {aviso && <div style={{ color: C.green, background: C.greenBg, borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: 16 }}>✓ {aviso}</div>}
@@ -84,7 +87,7 @@ export default function Estoque({ products, atualizarLista }) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: C.bgPage }}>
-              {["Produto", "Categoria", "Estoque", "Mínimo", "Custo", "Preço", "Status", "Ações"].map(h => (
+              {[r.item, "Código", "Categoria", "Estoque", "Mínimo", "Custo", "Preço", "Status", "Ações"].map(h => (
                 <th key={h} style={{ padding: "12px 16px", textAlign: "left", color: C.grayMid, fontSize: 12, fontWeight: 600 }}>{h}</th>
               ))}
             </tr>
@@ -95,12 +98,17 @@ export default function Estoque({ products, atualizarLista }) {
               return (
                 <tr key={p.id} style={{ borderTop: `1px solid ${C.grayLight}` }}>
                   <td style={{ padding: "14px 16px", fontWeight: 600, color: C.navyDark, fontSize: 14 }}>{p.nome}</td>
+                  <td style={{ padding: "14px 16px", color: C.grayMid, fontSize: 12, fontFamily: "monospace" }}>{p.codigo_barras}</td>
                   <td style={{ padding: "14px 16px", color: C.grayMid, fontSize: 13 }}>{p.categoria}</td>
                   <td style={{ padding: "14px 16px" }}>
                     <span style={{ fontWeight: 700, fontSize: 15, color: baixo ? C.red : C.navyDark }}>{p.temFicha ? "—" : p.estoque}</span>
                   </td>
                   <td style={{ padding: "14px 16px", color: C.grayMid, fontSize: 13 }}>{p.minimo}</td>
-                  <td style={{ padding: "14px 16px", color: C.grayMid, fontSize: 13 }}>{fmt(p.custo || 0)}</td>
+                  {/* Produto com receita: o custo real é a soma dos ingredientes, não o preço de custo gravado */}
+                  <td style={{ padding: "14px 16px", color: C.grayMid, fontSize: 13 }}
+                    title={p.temFicha ? "Custo da receita (soma dos ingredientes)" : undefined}>
+                    {fmt((p.temFicha ? p.custoReceita : p.custo) || 0)}{p.temFicha && <span style={{ fontSize: 11 }}> (receita)</span>}
+                  </td>
                   <td style={{ padding: "14px 16px", color: C.navyDark, fontSize: 13, fontWeight: 500 }}>{fmt(p.preco)}</td>
                   <td style={{ padding: "14px 16px" }}>
                     <span style={{
@@ -122,7 +130,7 @@ export default function Estoque({ products, atualizarLista }) {
               );
             })}
             {filtrados.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 32, textAlign: "center", color: C.grayMid }}>Nenhum produto encontrado.</td></tr>
+              <tr><td colSpan={9} style={{ padding: 32, textAlign: "center", color: C.grayMid }}>Nada encontrado.</td></tr>
             )}
           </tbody>
         </table>
@@ -150,6 +158,9 @@ export default function Estoque({ products, atualizarLista }) {
       {modal && modal.tipo === "editar" && (
         <Modal titulo={`Editar — ${modal.produto.nome}`}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ fontSize: 12, color: C.grayMid }}>
+              Código de barras: <b style={{ fontFamily: "monospace", color: C.navyDark }}>{modal.produto.codigo_barras}</b>
+            </div>
             <div>
               <label style={rotulo}>Nome *</label>
               <input value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} style={campoCheio} />
@@ -158,12 +169,15 @@ export default function Estoque({ products, atualizarLista }) {
               <label style={rotulo}>Categoria</label>
               <input value={form.categoria} onChange={e => setForm({ ...form, categoria: e.target.value })} style={campoCheio} />
             </div>
-            <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 140px" }}>
                 <label style={rotulo}>Preço de custo (R$) *</label>
                 <input type="number" min="0" step="0.01" value={form.custo} onChange={e => setForm({ ...form, custo: e.target.value })} style={campoCheio} />
+                {modal.produto.temFicha && (
+                  <div style={{ fontSize: 11, color: C.grayMid, marginTop: 4 }}>Na venda vale o custo da receita: {fmt(modal.produto.custoReceita)}</div>
+                )}
               </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: "1 1 140px" }}>
                 <label style={rotulo}>Preço de venda (R$) *</label>
                 <input type="number" min="0" step="0.01" value={form.preco} onChange={e => setForm({ ...form, preco: e.target.value })} style={campoCheio} />
               </div>
