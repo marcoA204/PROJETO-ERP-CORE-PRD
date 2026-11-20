@@ -13,10 +13,21 @@ function lerId(req, res) {
 async function listarProdutos(req, res) {
     try {
         const pool = await connectToDatabase();
-        const resultado = await pool.request().query('SELECT * FROM vw_CatalogoProdutos');
+        // custo_receita: para produtos com ficha técnica, o custo é a soma dos ingredientes
+        // (mesma conta que a sp_RegistrarVenda faz ao gravar o custo da venda); NULL para os demais.
+        const resultado = await pool.request().query(`
+            SELECT C.*, R.custo_receita
+            FROM vw_CatalogoProdutos C
+            OUTER APPLY (
+                SELECT SUM(F.quantidade * I.preco_custo) AS custo_receita
+                FROM dbo.FichaTecnica F
+                JOIN dbo.Produtos I ON I.id_produto = F.id_ingrediente
+                WHERE F.id_produto = C.id_produto
+            ) R
+        `);
         // Operador de caixa não enxerga preço de custo (nem pela API)
         if (!req.usuario || req.usuario.perfil !== 'GERENTE') {
-            return res.json(resultado.recordset.map(({ preco_custo, ...resto }) => resto));
+            return res.json(resultado.recordset.map(({ preco_custo, custo_receita, ...resto }) => resto));
         }
         res.json(resultado.recordset);
     } catch (erro) {

@@ -93,12 +93,33 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
       const nova = i.qtd + delta;
       if (nova < 1) return i;
       if (nova > i.estoque) { setErro(`Só há ${i.estoque} un. de "${i.nome}" em estoque.`); return i; }
-      return { ...i, qtd: nova };
+      return { ...i, qtd: nova, qtdTexto: undefined };
     }));
   };
+  // Quantidade digitada (ex.: 100 tijolos). Enquanto digita, guarda o texto; vale quando for um inteiro ≥ 1.
+  const digitarQtd = (codigo, texto) => {
+    setErro("");
+    setCarrinho(carrinho.map(i => {
+      if (i.codigo_barras !== codigo) return i;
+      const n = Number(texto);
+      if (texto === "" || !Number.isInteger(n) || n < 1) return { ...i, qtdTexto: texto };
+      if (n > i.estoque) {
+        setErro(`Só há ${i.estoque} un. de "${i.nome}" em estoque.`);
+        return { ...i, qtd: i.estoque, qtdTexto: undefined };
+      }
+      return { ...i, qtd: n, qtdTexto: undefined };
+    }));
+  };
+  // Saiu do campo com algo inválido (vazio, 0): volta para a última quantidade válida
+  const confirmarQtd = (codigo) =>
+    setCarrinho(carrinho.map(i => (i.codigo_barras === codigo ? { ...i, qtdTexto: undefined } : i)));
+
   const remover = (codigo) => setCarrinho(carrinho.filter(i => i.codigo_barras !== codigo));
 
-  const pagarTudoCom = (formaId) => setRecebido({ ...VAZIO, [formaId]: reais(totalC).toFixed(2) });
+  // Mexeu no pagamento ou no desconto: o aviso antigo ("Faltam R$ ...") deixa de valer
+  const mudarRecebido = (forma, valor) => { setErro(""); setRecebido({ ...recebido, [forma]: valor }); };
+
+  const pagarTudoCom = (formaId) => { setErro(""); setRecebido({ ...VAZIO, [formaId]: reais(totalC).toFixed(2) }); };
 
   const limpar = () => {
     setCarrinho([]); setDesconto(""); setRecebido(VAZIO); setErro("");
@@ -188,7 +209,7 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
       <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-start" }}>
 
         {/* ── Produtos ─────────────────────────────── */}
-        <div style={{ ...cartao, flex: "1 1 340px", overflow: "hidden" }}>
+        <div style={{ ...cartao, flex: "1 1 340px", minWidth: 0, overflow: "hidden" }}>
           <div style={{ padding: 16 }}>
             <input autoFocus placeholder="Buscar por nome ou ler o código de barras..." value={busca}
               onChange={e => setBusca(e.target.value)} onKeyDown={aoApertarTecla}
@@ -222,7 +243,7 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
         </div>
 
         {/* ── Carrinho e pagamento ─────────────────── */}
-        <div style={{ ...cartao, flex: "1 1 440px", padding: 20 }}>
+        <div style={{ ...cartao, flex: "1 1 440px", minWidth: 0, padding: 20 }}>
           {idOrcamento && (
             <div style={{ background: C.yellowBg, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: C.navyDark, marginBottom: 12, display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <span>📋 Venda do <b>orçamento #{idOrcamento}</b>. Remova os itens que o cliente desistiu de levar.</span>
@@ -251,9 +272,14 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
                     <td style={{ ...td, fontWeight: 600 }}>{i.nome}</td>
                     <td style={td}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                        <button onClick={() => mudarQtd(i.codigo_barras, -1)} style={btnQtd}>−</button>
-                        <b>{i.qtd}</b>
-                        <button onClick={() => mudarQtd(i.codigo_barras, 1)} style={btnQtd}>+</button>
+                        <button onClick={() => mudarQtd(i.codigo_barras, -1)} style={btnQtd} aria-label="Diminuir">−</button>
+                        <input type="number" min="1" step="1" inputMode="numeric" aria-label={`Quantidade de ${i.nome}`}
+                          value={i.qtdTexto ?? i.qtd}
+                          onChange={e => digitarQtd(i.codigo_barras, e.target.value)}
+                          onBlur={() => confirmarQtd(i.codigo_barras)}
+                          onFocus={e => e.target.select()}
+                          style={{ ...inputStyle, width: 58, padding: "4px 6px", textAlign: "center", fontWeight: 700 }} />
+                        <button onClick={() => mudarQtd(i.codigo_barras, 1)} style={btnQtd} aria-label="Aumentar">+</button>
                       </span>
                     </td>
                     <td style={td}>{fmt(i.preco)}</td>
@@ -276,7 +302,7 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 14, color: C.grayMid, marginBottom: 8 }}>
               <span>Desconto (R$)</span>
               <input type="number" min="0" step="0.01" placeholder="0,00" value={desconto}
-                onChange={e => setDesconto(e.target.value)} style={{ ...inputStyle, width: 110, textAlign: "right" }} />
+                onChange={e => { setErro(""); setDesconto(e.target.value); }} style={{ ...inputStyle, width: 110, textAlign: "right" }} />
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 22, fontWeight: 700, color: C.navyDark }}>
               <span>Total</span><span>{fmt(reais(totalC))}</span>
@@ -292,7 +318,7 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
                   <label style={rotulo}>{f.label}</label>
                   <div style={{ display: "flex", gap: 6 }}>
                     <input type="number" min="0" step="0.01" placeholder="0,00" value={recebido[f.id]}
-                      onChange={e => setRecebido({ ...recebido, [f.id]: e.target.value })}
+                      onChange={e => mudarRecebido(f.id, e.target.value)}
                       style={{ ...inputStyle, flex: 1, minWidth: 0 }} />
                     <button onClick={() => pagarTudoCom(f.id)} disabled={totalC <= 0} title="Pagar o total nesta forma"
                       style={{ ...botaoClaro, padding: "6px 10px", fontSize: 12 }}>Total</button>

@@ -3,12 +3,15 @@
 // pensado para o usuário (ex.: "Estoque insuficiente para o produto: teste.").
 // Qualquer outro erro (conexão, bug, constraint) vira uma mensagem genérica,
 // e o detalhe técnico fica só no terminal do backend.
+// O texto vem sem acento do SQL (arquivos ASCII de propósito) e é acentuado aqui.
+const { acentuar } = require('./acentos');
+
 function responderErro(res, erro, mensagemPadrao) {
     const info = erro && erro.originalError && erro.originalError.info;
     const numero = (erro && erro.number) || (info && info.number);
 
     if (numero >= 50000 && numero < 51000) {
-        return res.status(400).json({ erro: erro.message, codigo: numero });
+        return res.status(400).json({ erro: acentuar(erro.message), codigo: numero });
     }
     return res.status(500).json({ erro: mensagemPadrao });
 }

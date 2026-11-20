@@ -45,15 +45,31 @@ async function fecharCaixa(req, res) {
     }
 }
 
-// Devolve o caixa que está aberto agora (ou id_caixa: null).
-// O frontend usa isto ao carregar, para não "esquecer" um caixa aberto ao trocar de tela ou apertar F5.
+// Devolve o caixa que está aberto agora (ou id_caixa: null), com os totais REAIS do turno
+// (vindos do banco, não da memória da página: sobrevivem ao F5 e à troca de tela).
 async function caixaAtual(req, res) {
     try {
         const pool = await connectToDatabase();
-        const result = await pool.request().query(
-            "SELECT TOP 1 id_caixa, troco_inicial, data_abertura FROM Controle_Caixa WHERE status_caixa = 'ABERTO' ORDER BY id_caixa DESC"
-        );
-        res.json(result.recordset[0] || { id_caixa: null });
+        const result = await pool.request().query(`
+            SELECT TOP 1 C.id_caixa, C.troco_inicial, C.data_abertura,
+                   F.Faturamento_Total AS vendas_turno,
+                   F.Dinheiro_Em_Caixa_Fisico AS dinheiro_gaveta,
+                   F.Taxas_Total AS taxas_turno,
+                   (SELECT COUNT(*) FROM dbo.Vendas V
+                     WHERE V.id_caixa = C.id_caixa AND V.status_venda = 'CONCLUIDA') AS qtd_vendas,
+                   (SELECT ISNULL(SUM(D.valor_total), 0) FROM dbo.Despesas D
+                     WHERE D.status_pagamento = 'PAGO'
+                       AND D.data_pagamento >= CAST(C.data_abertura AS DATE)) AS despesas_pagas
+            FROM dbo.Controle_Caixa C
+            JOIN dbo.vw_FechamentoCaixa F ON F.Turno = C.id_caixa
+            WHERE C.status_caixa = 'ABERTO'
+            ORDER BY C.id_caixa DESC
+        `);
+        const caixa = result.recordset[0];
+        if (!caixa) return res.json({ id_caixa: null });
+        // Despesas são informação do gerente (o operador não acessa /despesas)
+        if (!req.usuario || req.usuario.perfil !== 'GERENTE') delete caixa.despesas_pagas;
+        res.json(caixa);
     } catch (erro) {
         console.error("Erro ao consultar caixa atual:", erro);
         responderErro(res, erro, "Falha ao consultar o caixa.");

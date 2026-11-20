@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { C, fmt, api, inputStyle, cartao } from "../comum.jsx";
+import { C, fmt, pct, api, inputStyle, cartao } from "../comum.jsx";
 
 const COR_CLASSE = { A: [C.green, C.greenBg], B: [C.yellow, C.yellowBg], C: [C.grayMid, C.bgPage] };
 const DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
@@ -116,9 +116,9 @@ function ConteudoABC({ dados }) {
                   <td style={td}>{d.qtd_vendida}</td>
                   <td style={td}>{fmt(d.receita)}</td>
                   <td style={{ ...td, fontWeight: 600, color: Number(d.lucro) >= 0 ? C.green : C.red }}>{fmt(d.lucro)}</td>
-                  <td style={td}>{Number(d.margem_pct).toFixed(1)}%</td>
-                  <td style={td}>{Number(d.pct_lucro).toFixed(1)}%</td>
-                  <td style={{ ...td, color: C.grayMid }}>{Number(d.pct_acumulado).toFixed(1)}%</td>
+                  <td style={td}>{pct(d.margem_pct)}</td>
+                  <td style={td}>{pct(d.pct_lucro)}</td>
+                  <td style={{ ...td, color: C.grayMid }}>{pct(d.pct_acumulado)}</td>
                 </tr>
               );
             })}

@@ -1,0 +1,15 @@
+# Dependências (reinstaladas com npm install)
+node_modules/
+
+# Senhas e configurações locais — NUNCA vão para o GitHub
+.env
+.env.*
+!.env.example
+
+# Build do frontend
+dist/
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+*.log

@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
-// Endereço do backend (se um dia mudar de porta/servidor, é só trocar aqui)
-export const API = "http://localhost:3000/api";
+// Endereço do backend. Em produção vem da variável VITE_API_URL (configurada no Vercel);
+// no seu PC, sem a variável, usa o backend local.
+export const API = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
 // Onde o navegador guarda o token de login (vale 12 horas; o logout apaga)
 export const TOKEN_KEY = "erp_token";
@@ -143,9 +144,30 @@ export const Icon = {
 // ── Helpers ──────────────────────────────────────────────────
 export const fmt = (n) => Number(n || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+// Percentual no formato brasileiro: 68.6 -> "68,6%"
+export const pct = (n, casas = 1) =>
+  `${Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
+
 // Contas em CENTAVOS (inteiros) para não ter erro de arredondamento
 export const centavos = (v) => Math.round((Number(v) || 0) * 100);
 export const reais = (c) => c / 100;
+
+// Rótulos que mudam conforme o perfil do negócio (Configurações → perfil)
+const ROTULOS = {
+  VAREJO: {
+    estoque: "Estoque", cadastrar: "Cadastrar Produto", orcamentos: "Orçamentos",
+    item: "Produto", itens: "produtos",
+    subtituloCadastro: "Adicione novos produtos ao sistema",
+    exemploNome: "Ex.: Cimento CP II 50kg", exemploCategoria: "Ex.: Material básico",
+  },
+  ALIMENTACAO: {
+    estoque: "Estoque e Insumos", cadastrar: "Cadastrar Item", orcamentos: "Encomendas",
+    item: "Item (produto ou insumo)", itens: "itens",
+    subtituloCadastro: "Cadastre o que você vende (bolos, doces) e os insumos das receitas",
+    exemploNome: "Ex.: Bolo de cenoura ou Farinha de trigo 1kg", exemploCategoria: "Ex.: Bolos, Insumos",
+  },
+};
+export const rotulos = (nicho) => ROTULOS[nicho] || ROTULOS.VAREJO;
 
 // Estilos reaproveitados pelas telas
 export const inputStyle = {

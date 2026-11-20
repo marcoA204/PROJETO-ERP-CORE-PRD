@@ -38,9 +38,9 @@ export default function Login({ onLogin }) {
       }}>
         {/* Logo */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 32 }}>
-          <img src="/logo.png" alt="LogiFlow" style={{ width: 150, height: 150, objectFit: "contain" }} />
+          <img src="/logo.png" alt="Logi Flow" style={{ width: 150, height: 150, objectFit: "contain" }} />
           <div>
-            <div style={{ color: C.navyDark, fontWeight: 700, fontSize: 22 }}>LogiFlow</div>
+            <div style={{ color: C.navyDark, fontWeight: 700, fontSize: 22 }}>Logi Flow</div>
             <div style={{ color: C.grayMid, fontSize: 13 }}>Gestão de Estoque</div>
           </div>
         </div>
