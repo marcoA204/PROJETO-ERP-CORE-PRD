@@ -1,1517 +1,265 @@
-# Documentação Técnica — ERP CORE / LogiFlow
+# Documentação técnica — LogiFlow / ERP CORE
 
-## Índice
+> **Escopo e fonte:** leitura do código versionado na branch `main` do repositório `marcoA204/PROJETO-ERP-CORE-PRD`. Este documento descreve comportamento observado no código e nos scripts SQL; não substitui validação dos processos operacionais com a equipe. Não foram publicados valores de credenciais ou segredos.
 
-1. [Visão Geral do Projeto](#1-visão-geral-do-projeto)
-2. [Tecnologias e Dependências](#2-tecnologias-e-dependências)
-3. [Arquitetura e Estrutura de Diretórios](#3-arquitetura-e-estrutura-de-diretórios)
-4. [Fluxo de Execução e Regras de Negócio](#4-fluxo-de-execução-e-regras-de-negócio)
-5. [Detalhamento dos Componentes Principais](#5-detalhamento-dos-componentes-principais)
-6. [Modelagem de Dados / Banco de Dados](#6-modelagem-de-dados--banco-de-dados)
-7. [Endpoints, Rotas e Interfaces](#7-endpoints-rotas-e-interfaces)
-8. [Guia de Instalação e Configuração](#8-guia-de-instalação-e-configuração)
-9. [Pontos de Atenção Arquiteturais](#9-pontos-de-atenção-arquiteturais)
+## 1. Identificação e visão técnica
 
----
+O LogiFlow é uma aplicação web para operação de pequenos estabelecimentos: cadastro de produtos, estoque, venda em PDV, caixa, clientes, orçamentos, contas, taxas e indicadores. A interface chama uma API Node/Express; a API consulta o Microsoft SQL Server, que concentra a persistência e parte importante das regras de negócio em stored procedures e views.
 
-## 1. Visão Geral do Projeto
+O repositório também usa o nome **ERP CORE** nos scripts SQL. O frontend apresenta o produto como **LogiFlow**. Os dois nomes referem-se ao mesmo sistema neste projeto.
 
-### 1.1 Propósito
+### Stack observada
 
-O **ERP CORE / LogiFlow** é uma aplicação web voltada à gestão operacional de pequenos estabelecimentos comerciais. O repositório combina:
+- **Frontend:** JavaScript ES modules, React 19, React DOM, Vite 8, CSS; `qrcode.react` gera QR Codes Pix.
+- **Backend:** Node.js, CommonJS, Express 5, `mssql`, `dotenv`, `cors`; Nodemon para desenvolvimento.
+- **Persistência:** Microsoft SQL Server; scripts T-SQL com tabelas, índices, constraints, procedures e views.
+- **Integrações:** geração local do payload Pix BR Code/CRC16 e links `wa.me` para WhatsApp. Não se identificou integração bancária que confirme o pagamento, nem gateway de pagamentos.
 
-- Backend em Node.js;
-- Interface web em React;
-- Banco de dados Microsoft SQL Server;
-- Rotinas SQL baseadas em stored procedures, views e transações;
-- Funcionalidades voltadas a varejo e alimentação.
+## 2. Organização do repositório
 
-O sistema recebe o nome **LogiFlow** na interface e nas mensagens da API. Os scripts do banco e os nomes internos utilizam **ERP CORE**.
+```text
+analytics/       Funções SQL de indicadores de análise (somente leitura)
+backend/
+  src/config/    Pool/conexão com SQL Server
+  src/controllers/ Regras de orquestração HTTP, consultas e chamadas a procedures
+  src/middleware/ Autenticação de sessão e autorização por perfil
+  src/routes/   Rotas HTTP da API
+  src/utils/    Senhas/tokens, erros HTTP, Pix e criação do gerente inicial
+database/       Estrutura base v4.0 e migrações v4.1–v4.4
+_docs/          Documentação do repositório (este arquivo e manual funcional)_
+frontend/
+  src/telas/    Telas por processo/área
+  src/App.jsx   Navegação, estado de sessão e montagem das telas
+  src/comum.jsx Componentes, formatação, cliente HTTP e recibo
+```
 
-### 1.2 Funcionalidades principais
+> A pasta de documentação existente no repositório é `docs/` (não `_docs/`). O frontend também contém `public/` para arquivos estáticos, como logo e ícones. `backend/node_modules/` está versionado no repositório; não é código próprio da aplicação e não deve ser tratado como fonte de regras funcionais.
 
-- PDV — ponto de venda;
-- Controle de caixa;
-- Cadastro e consulta de produtos;
-- Entrada e baixa de estoque;
-- Ficha técnica;
-- Cadastro de clientes;
-- Histórico de compras;
-- Orçamentos;
-- Histórico e cancelamento de vendas;
-- Contas a pagar;
-- Despesas pagas;
-- Dashboard gerencial;
-- DRE mensal;
-- Alertas de estoque mínimo;
-- QR Code e código Pix;
-- Onboarding e seleção do perfil do negócio.
+### Componentes de aplicação
 
-### 1.3 Público-alvo
+- `backend/src/server.js`: inicializa Express, configura CORS e JSON, monta as rotas e inicia a conexão SQL Server e a criação do administrador inicial.
+- `backend/src/config/db.js`: configura e reutiliza um único pool SQL (`max: 10`, `min: 0`, `idleTimeoutMillis: 30000`). Se a conexão falha, limpa o pool para permitir nova tentativa.
+- `backend/src/middleware/auth.js`: exige `Authorization: Bearer <token>` na API protegida, verifica o hash do token e carrega o perfil atual do usuário no banco.
+- `backend/src/middleware/permissoes.js`: matriz central de autorização; se não houver regra que libere uma rota ao operador, apenas gerente pode usá-la.
+- `backend/src/controllers/`: controllers por domínio. Muitos comandos de escrita chamam procedures SQL parametrizadas; consultas usam views ou SQL parametrizado.
+- `frontend/src/main.jsx`: monta `App.jsx`. `frontend/src/App.jsx` controla sessão, perfil de negócio, navegação e dados compartilhados.
+- `frontend/src/comum.jsx`: endereço da API (`http://localhost:3000/api`), inclusão do token, componentes comuns, formatação monetária, recibo, Pix/WhatsApp e seletor de clientes.
+- `database/`: scripts versionados em sequência; o SQL é parte essencial do comportamento, não apenas estrutura de armazenamento.
 
-O sistema é direcionado a:
+## 3. Inicialização e configuração
 
-- Pequenos varejistas;
-- Lojas de produtos em geral;
-- Mercados e minimercados;
-- Restaurantes, lanchonetes e estabelecimentos de alimentação;
-- Operadores de caixa;
-- Proprietários que acompanham vendas, estoque e despesas;
-- Equipes administrativas responsáveis por clientes e contas a pagar.
+### Pré-requisitos
 
-### 1.4 Perfis de negócio
+- Node.js/npm compatíveis com as dependências do projeto;
+- SQL Server acessível a partir do backend;
+- Banco `ERP_PDV_Master` preparado com os scripts abaixo;
+- Variáveis de ambiente de banco e, se for usar Pix, configuração Pix.
 
-O frontend possui dois perfis:
+### Instalação do banco
 
-- **VAREJO**;
-- **ALIMENTACAO**.
+A sequência declarada nos cabeçalhos dos scripts é:
 
-No perfil **ALIMENTACAO**, o menu apresenta adicionalmente a tela **Ficha Técnica**.
+1. `database/estrutura.banco.ERP_v4.0.sql`;
+2. `database/ERP_CORE_etapa1_v4.1.sql`;
+3. `database/ERP_CORE_etapa2_v4.2.sql`;
+4. `database/ERP_CORE_etapa3_v4.3.sql`;
+5. `analytics/01_funcoes_analiticas.sql` (após a etapa 3);
+6. `database/ERP_CORE_etapa4_v4.4.sql` (após v4.0–v4.3 e analytics, conforme o cabeçalho v4.4).
 
-### 1.5 Estado atual
+Os scripts se descrevem como migrações não destrutivas/reexecutáveis (`CREATE OR ALTER`, verificações de existência). A estrutura base cria `ERP_PDV_Master` caso ainda não exista. Não foi encontrado script de reset entre os arquivos próprios listados; as instruções de reset no comentário da estrutura referem-se a um arquivo que não está no inventário atual.
 
-A implementação é um MVP funcional ou protótipo local, com algumas características importantes:
+### Variáveis de ambiente identificadas
 
-- Login implementado exclusivamente no frontend;
-- Credenciais fixas no código;
-- Ausência de JWT ou sistema completo de sessões;
-- Comunicação HTTP direta com `localhost:3000`;
-- Estado persistido parcialmente no banco;
-- SQL Server executado localmente;
-- Componentes React concentrados em arquivos grandes;
-- Sem suíte de testes identificada;
-- Sem autenticação no backend;
-- Sem CI/CD identificado.
-
----
-
-## 2. Tecnologias e Dependências
-
-### 2.1 Backend
-
-| Tecnologia | Uso |
+| Variável | Uso |
 |---|---|
-| Node.js | Ambiente de execução |
-| CommonJS | Sistema de módulos |
-| Express 5 | Servidor HTTP e roteamento |
-| `mssql` | Driver para SQL Server |
-| `dotenv` | Variáveis de ambiente |
-| `cors` | Permissão de requisições CORS |
-| Nodemon | Reinicialização durante desenvolvimento |
-
-Principais arquivos:
-
-- `backend/package.json`
-- `backend/src/server.js`
-- `backend/src/config/db.js`
-
-Dependências:
-
-```json
-{
-  "cors": "^2.8.6",
-  "dotenv": "^18.0.10",
-  "express": "^5.3.0",
-  "mssql": "^12.7.14"
-}
-```
-
-Dependência de desenvolvimento:
-
-```json
-{
-  "nodemon": "^3.1.14"
-}
-```
-
-Scripts:
-
-```json
-{
-  "dev": "nodemon src/server.js",
-  "start": "node src/server.js"
-}
-```
-
-### 2.2 Frontend
-
-| Tecnologia | Uso |
-|---|---|
-| React 19 | Componentes da interface |
-| React DOM 19 | Montagem no navegador |
-| Vite 8 | Desenvolvimento e build |
-| `@vitejs/plugin-react` | Suporte a JSX |
-| ESLint | Análise estática |
-| `qrcode.react` | QR Code |
-| JSX | Estrutura dos componentes |
-| CSS | Estilização |
-
-Dependências:
-
-```json
-{
-  "qrcode.react": "^4.2.0",
-  "react": "^19.2.6",
-  "react-dom": "^19.2.6"
-}
-```
-
-Scripts:
-
-```json
-{
-  "dev": "vite",
-  "build": "vite build",
-  "lint": "eslint .",
-  "preview": "vite preview"
-}
-```
-
-### 2.3 Banco de dados
-
-- Microsoft SQL Server;
-- Pool de conexões gerenciado pelo `mssql`;
-- Banco padrão `ERP_PDV_Master`;
-- Stored procedures;
-- Views;
-- JSON enviado às procedures;
-- Transações;
-- Validação com `THROW`;
-- Auditoria de movimentos;
-- Registro de erros.
-
-Scripts identificados:
-
-- `database/estrutura.banco.ERP_v4.0.sql`
-- `database/ERP_CORE_etapa1_v4.1.sql`
-- `database/ERP_CORE_etapa2_v4.2.sql`
-
-### 2.4 Integrações externas
-
-A única integração identificada é o **Pix**:
-
-- Geração local do payload EMV;
-- Chave Pix configurada por variável de ambiente;
-- Nome e cidade configuráveis;
-- Cálculo local de CRC16-CCITT;
-- QR Code gerado por `qrcode.react`;
-- Nenhuma API bancária externa utilizada.
-
-Não foram identificadas integrações com:
-
-- Gateway de pagamento;
-- Nota fiscal;
-- SEFAZ;
-- NFe/NFC-e;
-- WhatsApp API;
-- Correios;
-- Autenticação externa;
-- ERP externo.
-
----
-
-## 3. Arquitetura e Estrutura de Diretórios
-
-### 3.1 Estrutura geral
-
-```text
-PROJETO-ERP-CORE-PRD/
-├── analytics/
-├── backend/
-│   ├── src/
-│   │   ├── config/
-│   │   ├── controllers/
-│   │   ├── routes/
-│   │   └── utils/
-│   ├── node_modules/
-│   ├── .env
-│   ├── package.json
-│   └── package-lock.json
-├── database/
-│   ├── ERP_CORE_etapa1_v4.1.sql
-│   ├── ERP_CORE_etapa2_v4.2.sql
-│   └── estrutura.banco.ERP_v4.0.sql
-├── docs/
-│   └── manual_sql.md
-├── frontend/
-│   ├── src/
-│   │   ├── telas/
-│   │   ├── assets/
-│   │   ├── App.jsx
-│   │   ├── comum.jsx
-│   │   ├── App.css
-│   │   ├── index.css
-│   │   └── main.jsx
-│   ├── public/
-│   ├── index.html
-│   ├── vite.config.js
-│   ├── eslint.config.js
-│   └── package.json
-├── .gitignore
-└── README.md
-```
-
-### 3.2 Backend
-
-#### `backend/src/server.js`
-
-Arquivo de inicialização da API. Responsabilidades:
-
-- Criar o aplicativo Express;
-- Configurar CORS;
-- Permitir JSON no corpo das requisições;
-- Registrar os módulos de rota;
-- Inicializar o servidor HTTP;
-- Disponibilizar rota de status;
-- Testar a conexão com o banco.
-
-Porta padrão:
-
-```text
-3000
-```
-
-#### `backend/src/config/db.js`
-
-Centraliza a conexão com SQL Server.
-
-Características:
-
-- Conecta uma única vez;
-- Mantém o pool em `poolPromise`;
-- Permite até dez conexões simultâneas;
-- Permite zero conexões ociosas mínimas;
-- Reinicia o pool após falha;
-- Utiliza `trustServerCertificate` para ambiente local;
-- Exporta `sql`, `connectToDatabase` e `dbConfig`.
-
-Configuração:
-
-```javascript
-{
-  user,
-  password,
-  database,
-  server,
-  pool: {
-    max: 10,
-    min: 0,
-    idleTimeoutMillis: 30000
-  },
-  options: {
-    encrypt: false,
-    trustServerCertificate: true
-  }
-}
-```
-
-### 3.3 Controllers
-
-Os controllers concentram:
-
-- Consultas SQL;
-- Parametrização;
-- Execução de procedures;
-- Respostas HTTP;
-- Tratamento de exceções;
-- Conversão de dados recebidos pelo frontend.
-
-| Arquivo | Responsabilidade |
-|---|---|
-| `produtoController.js` | Catálogo, cadastro, atualização, estoque e ficha técnica |
-| `caixaController.js` | Abrir, fechar e consultar caixa |
-| `vendaController.js` | Registrar, consultar, cancelar e emitir recibo |
-| `despesaController.js` | Contas a pagar e despesas |
-| `dashboardController.js` | Dados consolidados da tela inicial |
-| `clienteController.js` | Cadastro e histórico de clientes |
-| `orcamentoController.js` | Criar, consultar e cancelar orçamentos |
-| `configController.js` | Nicho e onboarding |
-
-### 3.4 Rotas
-
-| Prefixo | Arquivo |
-|---|---|
-| `/api/produtos` | `produtoRoutes.js` |
-| `/api/caixa` | `caixaRoutes.js` |
-| `/api/vendas` | `vendaRoutes.js` |
-| `/api/despesas` | `despesaRoutes.js` |
-| `/api/dashboard` | `dashboardRoutes.js` |
-| `/api/clientes` | `clienteRoutes.js` |
-| `/api/orcamentos` | `orcamentoRoutes.js` |
-| `/api/configuracoes` | `configRoutes.js` |
-
-### 3.5 Utilitários
-
-#### `erroHttp.js`
-
-Converte exceções do SQL Server em respostas HTTP.
-
-Comportamento:
-
-- Erros entre `50000` e `50999` representam regras de negócio;
-- Status `400`;
-- Corpo contém `erro` e `codigo`;
-- Outros erros recebem status `500`;
-- Detalhes técnicos são mantidos no console.
-
-#### `pix.js`
-
-Implementa:
-
-- Remoção de acentos;
-- Limitação de tamanho dos campos;
-- Montagem dos campos EMV;
-- Payload `br.gov.bcb.pix`;
-- Valor fixo;
-- TXID;
-- Código CRC16-CCITT;
-- Texto Copia e Cola.
-
-### 3.6 Frontend
-
-#### `frontend/src/main.jsx`
-
-Ponto de entrada React. Importa:
-
-- `StrictMode`;
-- `createRoot`;
-- `App.jsx`;
-- `index.css`.
-
-#### `frontend/src/App.jsx`
-
-Núcleo da interface.
-
-Responsabilidades:
-
-- Login;
-- Sidebar;
-- Dashboard;
-- Fluxo de caixa;
-- Cadastro de produto;
-- Estado global da aplicação;
-- Troca entre telas;
-- Persistência de login;
-- Onboarding;
-- Configuração do nicho;
-- Busca inicial de produtos e caixa.
-
-Estados principais:
-
-- `logado`;
-- `tela`;
-- `products`;
-- `transactions`;
-- `idCaixa`;
-- `config`;
-- `orcamentoPdv`.
-
-#### `frontend/src/comum.jsx`
-
-Centraliza:
-
-- Paleta de cores;
-- Ícones;
-- Formatação monetária;
-- Estilos comuns;
-- `StatCard`;
-- Cliente HTTP `api`;
-- Cores por situação.
-
-#### `frontend/src/telas/`
-
-| Arquivo | Função |
-|---|---|
-| `PDV.jsx` | Venda no balcão |
-| `Vendas.jsx` | Histórico e cancelamento |
-| `Estoque.jsx` | Consulta e entrada de estoque |
-| `Clientes.jsx` | Cadastro e histórico |
-| `Orcamentos.jsx` | Gestão de propostas |
-| `ContasPagar.jsx` | Contas pendentes e pagamentos |
-| `FichaTecnica.jsx` | Composição de produtos |
-| `Onboarding.jsx` | Seleção do nicho |
-
-### 3.7 Diretórios auxiliares
-
-- `database/`: scripts SQL;
-- `docs/`: manual SQL;
-- `analytics/`: reservado para futuras análises;
-- `frontend/public/`: arquivos públicos da aplicação;
-- `backend/node_modules/`: dependências JavaScript versionadas.
-
----
-
-## 4. Fluxo de Execução e Regras de Negócio
-
-### 4.1 Inicialização
-
-1. `main.jsx` monta `App.jsx`;
-2. O React verifica `lf_logado` no `localStorage`;
-3. Sem login, exibe `Login`;
-4. Com login, busca configurações, produtos e caixa aberto;
-5. Se o onboarding não foi concluído, exibe `Onboarding`;
-6. Em seguida, exibe o dashboard e o menu lateral.
-
-No backend:
-
-1. `server.js` inicia o Express;
-2. Carrega as variáveis de ambiente;
-3. Registra os módulos de rota;
-4. Mantém o pool do SQL Server;
-5. Testa a conexão com o banco.
-
-### 4.2 Login
-
-O login é implementado somente no frontend.
-
-Credenciais:
-
-```text
-Usuário: admin
-Senha: admin123
-```
-
-Após autenticar:
-
-- Salva `lf_logado=true` no `localStorage`;
-- Remove o valor ao sair;
-- Não envia token ao backend;
-- Não protege as rotas da API.
-
-Em produção, a autenticação deverá ser implementada no backend.
-
-### 4.3 Produtos
-
-Fluxo:
-
-```text
-Frontend
-→ POST /api/produtos
-→ sp_SalvarProduto
-→ tabela Produtos
-```
-
-Regras:
-
-- Nome obrigatório;
-- Preços não podem ser negativos;
-- Estoque inicial não pode ser negativo;
-- Estoque mínimo não pode ser negativo;
-- Código de barras não pode duplicar em produtos ativos;
-- Sem código informado, o banco gera código interno iniciado por `200`;
-- Estoque inicial gera histórico de movimentação.
-
-A inativação não exclui o produto, preservando o histórico comercial.
-
-### 4.4 Estoque
-
-O estoque pode ser alterado por:
-
-- Cadastro inicial;
-- Entrada de reposição;
-- Venda concluída;
-- Cancelamento de venda;
-- Ficha técnica.
-
-Endpoint:
-
-```text
-POST /api/produtos/:id/entrada
-```
-
-Regras:
-
-- Produto deve existir e estar ativo;
-- Quantidade deve ser inteira e positiva;
-- O histórico recebe o saldo resultante;
-- Motivo padrão: `Reposicao de estoque`.
-
-### 4.5 Caixa
-
-Somente um caixa pode estar aberto por vez.
-
-Fluxo:
-
-```text
-Abrir caixa
-→ sp_AbrirCaixa
-→ id_caixa
-→ vendas utilizam o id_caixa
-→ fechar caixa
-→ sp_FecharCaixa
-��� resumo do turno
-```
-
-Ao abrir:
-
-- Troco inicial precisa ser válido;
-- Não pode existir caixa aberto;
-- Um novo turno é criado.
-
-Ao fechar:
-
-- Caixa precisa existir;
-- Caixa não pode estar fechado anteriormente;
-- Faturamento é calculado;
-- Dinheiro físico esperado é calculado;
-- Resumo é retornado ao frontend.
-
-### 4.6 Venda no PDV
-
-Uma venda contém:
-
-- Itens;
-- Quantidades;
-- Pagamentos;
-- Desconto;
-- Caixa;
-- Cliente opcional;
-- Orçamento opcional.
-
-Fluxo:
-
-```text
-Frontend
-→ POST /api/vendas
-→ sp_RegistrarVenda
-→ baixa de estoque
-→ registros de pagamento
-→ venda concluída
-→ id_venda
-```
-
-Regras:
-
-- Caixa precisa estar aberto;
-- Produtos precisam estar ativos;
-- Quantidades precisam ser positivas;
-- Estoque não pode ficar negativo;
-- Preço é obtido do banco;
-- Desconto não pode tornar o valor negativo;
-- Pagamentos precisam somar o valor líquido;
-- Tudo ocorre em uma única transação;
-- Falhas realizam rollback;
-- Erros são registrados em `Log_Erros`.
-
-Formas de pagamento:
-
-- `DINHEIRO`;
-- `PIX`;
-- `CARTAO_DEBITO`;
-- `CARTAO_CREDITO`;
-- `BOLETO`;
-- `OUTROS`.
-
-### 4.7 Cancelamento de venda
-
-Endpoint:
-
-```text
-POST /api/vendas/:id/cancelar
-```
-
-Regras:
-
-- Motivo limitado a 200 caracteres;
-- Venda precisa existir;
-- Itens são devolvidos ao estoque;
-- Status passa para `CANCELADA`;
-- Histórico é preservado;
-- Canceladas são excluídas das consultas financeiras relevantes.
-
-### 4.8 Orçamentos
-
-Um orçamento pode conter:
-
-- Cliente opcional;
-- Validade;
-- Desconto;
-- Observações;
-- Itens.
-
-Regras:
-
-- Validade deve estar no formato `AAAA-MM-DD`;
-- Observações são limitadas a 300 caracteres;
-- A criação executa `sp_CriarOrcamento`;
-- O orçamento pode ser enviado ao PDV;
-- O orçamento pode ser cancelado;
-- Uma venda pode referenciar o orçamento por `id_orcamento`.
-
-### 4.9 Contas a pagar
-
-Uma despesa possui:
-
-- Descrição;
-- Valor;
-- Data de vencimento;
-- Status;
-- Data de pagamento.
-
-Situações:
-
-- `ATRASADA`;
-- `VENCE HOJE`;
-- `PENDENTE`;
-- `PAGO`.
-
-Regras:
-
-- Pendente não possui data de pagamento;
-- Pago exige data de pagamento;
-- Contas vencidas aparecem no dashboard;
-- Despesas pagas entram no fluxo de caixa;
-- Despesas pagas entram na DRE.
-
-### 4.10 Dashboard
-
-Endpoint:
-
-```text
-GET /api/dashboard
-```
-
-Dados consolidados:
-
-- Resumo mensal;
-- DRE dos últimos seis meses;
-- Produtos abaixo do mínimo;
-- Últimas movimentações;
-- Contas atrasadas;
-- Contas que vencem hoje;
-- Próximos vencimentos.
-
-Cálculo:
-
-```text
-Lucro líquido =
-Faturamento recebido
-- custo dos produtos
-- despesas operacionais
-```
-
-### 4.11 Pix
-
-No recebimento do recibo:
-
-- Soma-se o valor pago em Pix;
-- Monta-se o payload;
-- Define-se o TXID como `VENDA{id_venda}`;
-- Retorna-se o texto Copia e Cola;
-- O frontend gera o QR Code.
-
----
-
-## 5. Detalhamento dos Componentes Principais
-
-### 5.1 `server.js`
-
-Funções:
-
-- Configuração do Express;
-- Middleware CORS;
-- Middleware JSON;
-- Registro das rotas;
-- Inicialização da API;
-- Rota de status.
-
-Rota base:
-
-```text
-GET /
-```
-
-Retorno:
-
-```json
-{
-  "status": "Online",
-  "mensagem": "API do LogiFlow está rodando 100% no Node.js!",
-  "ambiente": "Desenvolvimento"
-}
-```
-
-### 5.2 `App.jsx`
-
-Estados principais:
-
-- `logado`;
-- `tela`;
-- `products`;
-- `transactions`;
-- `idCaixa`;
-- `config`;
-- `orcamentoPdv`.
-
-Funções:
-
-| Função | Responsabilidade |
-|---|---|
-| `buscarConfig` | Obtém perfil e onboarding |
-| `salvarNicho` | Atualiza perfil |
-| `abrirNoPdv` | Envia orçamento ao PDV |
-| `buscarCaixaAberto` | Recupera caixa aberto |
-| `buscarProdutos` | Atualiza catálogo |
-| `renderTela` | Seleciona componente |
-| `Login` | Realiza autenticação local |
-| `Sidebar` | Navegação lateral |
-| `Dashboard` | Indicadores |
-| `FluxoCaixa` | Turno e despesas |
-| `CadastroProduto` | Cadastro e listagem |
-
-### 5.3 `comum.jsx`
-
-Provavelmente disponibiliza:
-
-- `C`: paleta de cores;
-- `Icon`: componentes SVG;
-- `fmt`: formatação monetária;
-- `api`: wrapper de requisições;
-- `inputStyle`;
-- `botao`;
-- `cartao`;
-- `StatCard`;
-- `COR_SITUACAO`.
-
-### 5.4 `produtoController.js`
-
-Funções:
-
-- `listarProdutos`;
-- `cadastrarProduto`;
-- `atualizarProduto`;
-- `entradaEstoque`;
-- `inativarProduto`;
-- `obterFicha`;
-- `salvarFicha`.
-
-Destaques:
-
-- Usa parâmetros tipados;
-- Executa procedures;
-- Valida IDs;
-- Valida quantidade de entrada;
-- Converte fichas técnicas em JSON;
-- Utiliza `responderErro`.
-
-### 5.5 `vendaController.js`
-
-Funções:
-
-- `registrarVenda`;
-- `listarVendas`;
-- `cancelarVenda`;
-- `obterRecibo`.
-
-Destaques:
-
-- Executa `sp_RegistrarVenda`;
-- Limita histórico entre 1 e 300 registros;
-- Monta recibos completos;
-- Soma pagamentos em Pix;
-- Gera payload Pix;
-- Consulta itens e pagamentos.
-
-### 5.6 `clienteController.js`
-
-Permite:
-
-- Listar clientes ativos;
-- Criar e editar;
-- Inativar;
-- Consultar histórico;
-- Normalizar telefone e documento;
-- Mostrar total gasto;
-- Contar compras.
-
-### 5.7 `orcamentoController.js`
-
-Permite:
-
-- Listar 200 orçamentos;
-- Consultar cabeçalho e itens;
-- Criar orçamento;
-- Cancelar orçamento;
-- Enviar orçamento ao PDV.
-
-### 5.8 `pix.js`
-
-Função principal:
-
-```javascript
-gerarPixCopiaECola({
-  chave,
-  nome,
-  cidade,
-  valor,
-  txid
-})
-```
-
-Também expõe:
-
-```javascript
-crc16()
-```
-
----
-
-## 6. Modelagem de Dados / Banco de Dados
-
-### 6.1 Banco configurado
-
-Nome padrão:
-
-```text
-ERP_PDV_Master
-```
-
-Servidor padrão:
-
-```text
-localhost
-```
-
-Usuário padrão:
-
-```text
-sa
-```
-
-### 6.2 Entidades principais
-
-| Entidade | Finalidade |
-|---|---|
-| `Produtos` | Catálogo |
-| `Categorias` | Classificação |
-| `Marcas` | Marcas de produtos |
-| `Clientes` | Cadastro de clientes |
-| `Vendas` | Cabeçalho das vendas |
-| `ItensVenda` | Itens vendidos |
-| `PagamentosVenda` | Formas de pagamento |
-| `Orcamentos` | Cabeçalho de propostas |
-| `ItensOrcamento` | Itens de propostas |
-| `Despesas` | Contas e despesas |
-| `Controle_Caixa` | Turnos |
-| `Historico_Movimentacao_Estoque` | Auditoria |
-| `FichaTecnica` | Composição de produtos |
-| `Configuracoes` | Nicho e onboarding |
-| `Log_Erros` | Auditoria de falhas |
-
-### 6.3 Produtos
-
-Campos inferidos:
-
-- `id_produto`;
-- `nome`;
-- `codigo_barras`;
-- `preco_custo`;
-- `preco_venda`;
-- `estoque_atual`;
-- `estoque_minimo`;
-- `ativo`;
-- `id_categoria`;
-- `id_marca`.
-
-Regras:
-
-- Preços não negativos;
-- Estoque não negativo;
-- Código de barras único em produtos ativos;
-- Produto inativo preserva histórico.
-
-### 6.4 Clientes
-
-Campos inferidos:
-
-- `id_cliente`;
-- `nome`;
-- `whatsapp`;
-- `documento`;
-- `observacoes`;
-- `ativo`.
-
-### 6.5 Vendas
-
-Campos inferidos:
-
-- `id_venda`;
-- `id_caixa`;
-- `id_cliente`;
-- `id_orcamento`;
-- `data_venda`;
-- `valor_total`;
-- `valor_desconto`;
-- `valor_a_receber`;
-- `status_venda`;
-- `motivo_cancelamento`;
-- `turno`.
-
-Status:
-
-- `CONCLUIDA`;
-- `CANCELADA`.
-
-### 6.6 Itens da venda
-
-Campos inferidos:
-
-- `id_item`;
-- `id_venda`;
-- `id_produto`;
-- `quantidade`;
-- `preco_unitario_praticado`;
-- `subtotal`.
-
-### 6.7 Pagamentos
-
-Campos inferidos:
-
-- `id_pagamento`;
-- `id_venda`;
-- `forma_pagamento`;
-- `valor_pago`.
-
-### 6.8 Caixa
-
-Campos inferidos:
-
-- `id_caixa`;
-- `troco_inicial`;
-- `data_abertura`;
-- `data_fechamento`;
-- `status_caixa`.
-
-Status:
-
-- `ABERTO`;
-- `FECHADO`.
-
-### 6.9 Despesas
-
-Campos inferidos:
-
-- `id_despesa`;
-- `descricao`;
-- `valor_total`;
-- `data_vencimento`;
-- `data_pagamento`;
-- `status_pagamento`.
-
-Status:
-
-- `PENDENTE`;
-- `PAGO`.
-
-### 6.10 Ficha técnica
-
-Relacionamento:
-
-```text
-Produto final 1 ─── N FichaTecnica N ─── 1 Ingrediente
-```
-
-Campos inferidos:
-
-- `id_produto`;
-- `id_ingrediente`;
-- `quantidade`.
-
-### 6.11 Views relevantes
-
-| View | Função |
-|---|---|
-| `vw_CatalogoProdutos` | Catálogo ativo |
-| `vw_SugestaoCompra` | Produtos abaixo do mínimo |
-| `vw_FechamentoCaixa` | Resumo de turno |
-| `vw_RelatorioMensal_DRE` | Resultado mensal |
-| `vw_ContasPagar` | Situação das despesas |
-| `vw_HistoricoVendas` | Histórico comercial |
-| `vw_Orcamentos` | Dados consolidados |
-| `vw_ErrosRecentes` | Últimos erros SQL |
-
-### 6.12 Procedures relevantes
-
-| Procedure | Responsabilidade |
-|---|---|
-| `sp_SalvarProduto` | Cadastrar produto |
-| `sp_AtualizarProduto` | Atualizar produto |
-| `sp_InativarProduto` | Inativar produto |
-| `sp_EntradaEstoque` | Repor estoque |
-| `sp_AbrirCaixa` | Abrir turno |
-| `sp_FecharCaixa` | Fechar turno |
-| `sp_RegistrarVenda` | Registrar venda |
-| `sp_CancelarVenda` | Cancelar venda |
-| `sp_SalvarCliente` | Cadastrar ou editar cliente |
-| `sp_InativarCliente` | Remover da lista ativa |
-| `sp_CriarOrcamento` | Criar proposta |
-| `sp_CancelarOrcamento` | Cancelar proposta |
-| `sp_SalvarFichaTecnica` | Atualizar composição |
-
----
-
-## 7. Endpoints, Rotas e Interfaces
-
-### 7.1 Rota geral
-
-| Método | Rota | Finalidade |
-|---|---|---|
-| `GET` | `/` | Status da API |
-
-### 7.2 Produtos
-
-| Método | Rota | Controller |
-|---|---|---|
-| `GET` | `/api/produtos` | `listarProdutos` |
-| `POST` | `/api/produtos` | `cadastrarProduto` |
-| `PUT` | `/api/produtos/:id` | `atualizarProduto` |
-| `POST` | `/api/produtos/:id/entrada` | `entradaEstoque` |
-| `DELETE` | `/api/produtos/:id` | `inativarProduto` |
-| `GET` | `/api/produtos/:id/ficha` | `obterFicha` |
-| `PUT` | `/api/produtos/:id/ficha` | `salvarFicha` |
-
-Exemplo de cadastro:
-
-```json
-{
-  "nome": "Notebook",
-  "preco_custo": 2000,
-  "preco_venda": 2800,
-  "estoque_inicial": 10,
-  "estoque_minimo": 2,
-  "codigo_barras": "7891234567890",
-  "nome_categoria": "Eletrônicos",
-  "nome_marca": "Dell"
-}
-```
-
-Exemplo de entrada:
-
-```json
-{
-  "quantidade": 5,
-  "motivo": "Compra fornecedor NF 123"
-}
-```
-
-Exemplo de ficha:
-
-```json
-{
-  "ingredientes": [
-    {
-      "id_ingrediente": 10,
-      "quantidade": 2
-    }
-  ]
-}
-```
-
-### 7.3 Caixa
-
-| Método | Rota | Controller |
-|---|---|---|
-| `GET` | `/api/caixa/atual` | `caixaAtual` |
-| `POST` | `/api/caixa/abrir` | `abrirCaixa` |
-| `POST` | `/api/caixa/fechar` | `fecharCaixa` |
-
-Exemplo de abertura:
-
-```json
-{
-  "troco_inicial": 100
-}
-```
-
-Exemplo de fechamento:
-
-```json
-{
-  "id_caixa": 1
-}
-```
-
-### 7.4 Vendas
-
-| Método | Rota | Controller |
-|---|---|---|
-| `GET` | `/api/vendas?limite=100` | `listarVendas` |
-| `POST` | `/api/vendas` | `registrarVenda` |
-| `POST` | `/api/vendas/:id/cancelar` | `cancelarVenda` |
-| `GET` | `/api/vendas/:id/recibo` | `obterRecibo` |
-
-Exemplo:
-
-```json
-{
-  "id_caixa": 1,
-  "valor_desconto": 5,
-  "itens": [
-    {
-      "codigo_barras": "7891234567890",
-      "quantidade": 2
-    }
-  ],
-  "pagamentos": [
-    {
-      "forma_pagamento": "PIX",
-      "valor_pago": 50
-    },
-    {
-      "forma_pagamento": "DINHEIRO",
-      "valor_pago": 25
-    }
-  ],
-  "id_cliente": null,
-  "id_orcamento": null
-}
-```
-
-Exemplo de cancelamento:
-
-```json
-{
-  "motivo": "Cliente desistiu da compra"
-}
-```
-
-### 7.5 Despesas
-
-| Método | Rota | Controller |
-|---|---|---|
-| `GET` | `/api/despesas` | `listarDespesas` |
-| `POST` | `/api/despesas` | `registrarDespesa` |
-| `POST` | `/api/despesas/:id/pagar` | `pagarDespesa` |
-
-### 7.6 Dashboard
-
-| Método | Rota | Controller |
-|---|---|---|
-| `GET` | `/api/dashboard` | `obterDashboard` |
-
-### 7.7 Clientes
-
-| Método | Rota | Controller |
-|---|---|---|
-| `GET` | `/api/clientes` | `listarClientes` |
-| `POST` | `/api/clientes` | `salvarCliente` |
-| `PUT` | `/api/clientes/:id` | `salvarCliente` |
-| `DELETE` | `/api/clientes/:id` | `inativarCliente` |
-| `GET` | `/api/clientes/:id/historico` | `historicoCliente` |
-
-Exemplo:
-
-```json
-{
-  "nome": "João Silva",
-  "whatsapp": "11999999999",
-  "documento": "12345678900",
-  "observacoes": "Preferência por entrega"
-}
-```
-
-### 7.8 Orçamentos
-
-| Método | Rota | Controller |
-|---|---|---|
-| `GET` | `/api/orcamentos` | `listarOrcamentos` |
-| `POST` | `/api/orcamentos` | `criarOrcamento` |
-| `GET` | `/api/orcamentos/:id` | `obterOrcamento` |
-| `POST` | `/api/orcamentos/:id/cancelar` | `cancelarOrcamento` |
-
-Exemplo:
-
-```json
-{
-  "id_cliente": 1,
-  "validade": "2026-12-01",
-  "valor_desconto": 10,
-  "observacoes": "Entrega no endereço do cliente",
-  "itens": [
-    {
-      "codigo_barras": "7891234567890",
-      "quantidade": 3
-    }
-  ]
-}
-```
-
-### 7.9 Configurações
-
-| Método | Rota | Controller |
-|---|---|---|
-| `GET` | `/api/configuracoes` | `obterConfiguracoes` |
-| `PUT` | `/api/configuracoes` | `salvarConfiguracoes` |
-
-Corpo:
-
-```json
-{
-  "nicho": "ALIMENTACAO"
-}
-```
-
-Valores suportados:
-
-- `VAREJO`;
-- `ALIMENTACAO`.
-
-### 7.10 Telas
-
-| Tela | Origem |
-|---|---|
-| Dashboard | `Dashboard` em `App.jsx` |
-| PDV | `PDV.jsx` |
-| Orçamentos | `Orcamentos.jsx` |
-| Vendas | `Vendas.jsx` |
-| Clientes | `Clientes.jsx` |
-| Estoque | `Estoque.jsx` |
-| Ficha Técnica | `FichaTecnica.jsx` |
-| Contas a Pagar | `ContasPagar.jsx` |
-| Fluxo de Caixa | `FluxoCaixa` em `App.jsx` |
-| Cadastrar Produto | `CadastroProduto` em `App.jsx` |
-| Configurações | `Onboarding.jsx` |
-| Login | `Login` em `App.jsx` |
-
----
-
-## 8. Guia de Instalação e Configuração
-
-### 8.1 Pré-requisitos
-
-- Windows recomendado;
-- Node.js moderno;
-- npm;
-- Microsoft SQL Server;
-- SQL Server Management Studio opcional;
-- Porta `3000` disponível;
-- Porta padrão do Vite disponível.
-
-### 8.2 Clonar
+| `DB_USER`, `DB_PASSWORD`, `DB_DATABASE`, `DB_SERVER` | Conexão SQL Server (`db.js`) |
+| `PORT` | Porta HTTP; padrão `3000` |
+| `ADMIN_SENHA_INICIAL` | Senha provisória para criar o primeiro gerente; fallback no código: `admin123` |
+| `PIX_CHAVE` | Chave Pix utilizada para montar payload no recibo |
+| `PIX_NOME` | Nome do recebedor; se ausente, o código usa `LOJA_NOME` |
+| `PIX_CIDADE` | Cidade do recebedor |
+| `LOJA_NOME` | Nome exibido em recibos/orçamentos; usado também como fallback para nome Pix |
+
+O arquivo `backend/.env` existe no repositório. Seu conteúdo não foi lido nem reproduzido aqui. **Recomendação:** não versionar `.env` nem segredos; revisar permissões/valores e rotacionar qualquer segredo que já tenha sido publicado.
+
+### Executar em desenvolvimento
 
 ```bash
-git clone https://github.com/marcoA204/PROJETO-ERP-CORE-PRD.git
-cd PROJETO-ERP-CORE-PRD
-```
-
-### 8.3 Backend
-
-```bash
+# Terminal 1 — API
 cd backend
 npm install
-```
+npm run dev
 
-### 8.4 Banco de dados
-
-Execute, nesta ordem, para uma instalação limpa:
-
-```text
-database/estrutura.banco.ERP_v4.0.sql
-database/ERP_CORE_etapa1_v4.1.sql
-database/ERP_CORE_etapa2_v4.2.sql
-```
-
-Crie ou identifique:
-
-- Servidor SQL;
-- Banco `ERP_PDV_Master`;
-- Usuário com permissões adequadas;
-- Permissão para criar e executar procedures;
-- Permissão para consultar views e tabelas.
-
-### 8.5 Variáveis de ambiente
-
-Arquivo:
-
-```text
-backend/.env
-```
-
-Exemplo:
-
-```dotenv
-PORT=3000
-DB_SERVER=localhost
-DB_DATABASE=ERP_PDV_Master
-DB_USER=sa
-DB_PASSWORD=SuaSenhaSegura123!
-LOJA_NOME=ERP-CORE
-PIX_CHAVE=23132112300
-PIX_NOME=Sistema ERP-CORE
-PIX_CIDADE=São Paulo
-```
-
-Variáveis:
-
-| Variável | Obrigatória | Finalidade |
-|---|---|---|
-| `PORT` | Não | Porta HTTP da API |
-| `DB_SERVER` | Sim | Servidor SQL |
-| `DB_DATABASE` | Sim | Banco |
-| `DB_USER` | Sim | Usuário SQL |
-| `DB_PASSWORD` | Sim | Senha SQL |
-| `LOJA_NOME` | Não | Nome em recibos |
-| `PIX_CHAVE` | Não | Chave Pix |
-| `PIX_NOME` | Não | Nome do beneficiário |
-| `PIX_CIDADE` | Não | Cidade do beneficiário |
-
-A chave e a senha devem ser substituídas em ambientes reais.
-
-### 8.6 Executar backend
-
-Desenvolvimento:
-
-```bash
-cd backend
+# Terminal 2 — interface
+cd frontend
+npm install
 npm run dev
 ```
 
-Execução normal:
+A API usa a porta 3000 por padrão e o cliente do frontend aponta para `http://localhost:3000/api`. Os comandos de build/lint/preview disponíveis no frontend são `npm run build`, `npm run lint` e `npm run preview`. Não há script de teste próprio declarado nos manifests consultados.
 
-```bash
-cd backend
-npm start
-```
+## 4. Autenticação e segurança
 
-API:
+### Fluxo de sessão
 
-```text
-http://localhost:3000
-```
+1. `POST /api/auth/login` procura usuário ativo no SQL Server.
+2. A senha é verificada por `scrypt`; o banco guarda o formato `scrypt$sal$hash`, não a senha em texto.
+3. O backend cria token aleatório de 256 bits; armazena no banco somente seu SHA-256, ligado a usuário e expiração de 12 horas.
+4. Nas chamadas protegidas, o frontend envia `Bearer <token>`; o middleware verifica hash, validade da sessão e usuário ativo.
+5. `POST /api/auth/logout` apaga a sessão no banco. Token inválido/expirado gera 401; o frontend escuta o evento `sessao-expirada` e limpa o estado local.
+6. Cinco falhas de login consecutivas para a combinação IP/login bloqueiam novas tentativas por 15 minutos. O contador está em memória do processo, portanto não é uma trava distribuída/persistente.
 
-Verificação:
+O administrador inicial `admin` é criado pelo backend somente se a tabela `Usuarios` estiver vazia. A senha é `ADMIN_SENHA_INICIAL` ou, se não configurada, `admin123`; a troca é obrigatória no primeiro acesso. Senhas novas têm mínimo de 8 caracteres. `sp_AlterarSenha` mantém a sessão que está sendo usada e remove as demais sessões daquele usuário.
 
-```text
-http://localhost:3000/
-```
+### Matriz de permissões implementada
 
-### 8.7 Frontend
+| Área/ação | Operador | Gerente |
+|---|---:|---:|
+| Ler catálogo de produtos | Sim | Sim |
+| Criar/editar/inativar produto, entrada de estoque e ficha | Não | Sim |
+| Ler clientes para seleção no PDV | Sim | Sim |
+| Criar/editar/inativar cliente e ver histórico | Não | Sim |
+| Registrar venda e consultar recibo | Sim | Sim |
+| Histórico e cancelamento de vendas | Não | Sim |
+| Consultar/abrir/fechar caixa | Sim | Sim |
+| Dashboard, análises, despesas, orçamentos, taxas, usuários e auditoria | Não | Sim |
+| Ler configurações do negócio | Sim | Sim |
+| Alterar configurações do negócio | Não | Sim |
 
-Instalar:
+A UI também filtra o menu e bloqueia telas de gerente para operador, mas a regra efetiva é aplicada na API. Operador não recebe `preco_custo` na listagem de produtos.
 
-```bash
-cd frontend
-npm install
-```
+## 5. Referência da API
 
-Executar:
+Todas as rotas abaixo são montadas sob `/api`. Exceto login, a API aplica autenticação e autorização conforme `server.js`, `authRoutes.js` e `permissoes.js`.
 
-```bash
-cd frontend
-npm run dev
-```
+| Método e caminho | Ação | Perfil conforme matriz |
+|---|---|---|
+| `POST /auth/login` | Inicia sessão | Público |
+| `GET /auth/me` | Retorna usuário da sessão | Sessão válida; também permite verificar senha provisória |
+| `POST /auth/logout` | Revoga sessão atual | Sessão válida |
+| `POST /auth/trocar-senha` | Troca senha própria | Sessão válida; rota permitida antes de cumprir troca obrigatória |
+| `GET /produtos` | Catálogo ativo | Qualquer usuário autenticado |
+| `POST /produtos` | Cadastra produto | Gerente |
+| `PUT /produtos/:id` | Atualiza nome/preços/mínimo/categoria | Gerente |
+| `POST /produtos/:id/entrada` | Reposição de estoque | Gerente |
+| `DELETE /produtos/:id` | Inativa produto (não apaga) | Gerente |
+| `GET /produtos/:id/ficha`, `PUT /produtos/:id/ficha` | Lê/substitui ficha técnica | Gerente |
+| `GET /caixa/atual` | Consulta caixa aberto | Qualquer usuário autenticado |
+| `POST /caixa/abrir`, `POST /caixa/fechar` | Abre/fecha turno | Qualquer usuário autenticado |
+| `POST /vendas` | Registra venda | Qualquer usuário autenticado |
+| `GET /vendas/:id/recibo` | Retorna recibo, pagamentos e dados Pix | Qualquer usuário autenticado |
+| `GET /vendas` | Histórico de vendas | Gerente |
+| `POST /vendas/:id/cancelar` | Cancela venda | Gerente |
+| `GET /clientes` | Lista clientes ativos | Qualquer usuário autenticado |
+| `POST /clientes`, `PUT /clientes/:id`, `DELETE /clientes/:id`, `GET /clientes/:id/historico` | Gestão/histórico de clientes | Gerente |
+| `GET /orcamentos`, `GET /orcamentos/:id`, `POST /orcamentos`, `POST /orcamentos/:id/cancelar` | Gestão de orçamento | Gerente |
+| `GET /despesas`, `POST /despesas`, `POST /despesas/:id/pagar` | Contas e despesas | Gerente |
+| `GET /dashboard` | Indicadores e contas próximas | Gerente |
+| `GET /configuracoes`, `PUT /configuracoes` | Perfil do negócio/onboarding | Leitura: todos; escrita: gerente |
+| `GET /taxas`, `PUT /taxas` | Consulta/atualiza taxas | Gerente |
+| `GET /analytics/curva-abc?dias=N` | Curva ABC por lucro | Gerente |
+| `GET /analytics/estoque-parado?dias=N` | Estoque sem saída | Gerente |
+| `GET /analytics/picos?dias=N` | Vendas por dia e hora | Gerente |
+| `GET /usuarios`, `POST /usuarios`, `PUT /usuarios/:id` | Administração de usuários | Gerente |
+| `GET /auditoria/estoque?dias=N&tipo=ENTRADA\|SAIDA`, `GET /auditoria/erros` | Auditoria de estoque e log de erros | Gerente |
 
-Endereço comum:
+A raiz `GET /` fora do prefixo `/api` retorna uma resposta simples de estado da API. Os controllers validam alguns parâmetros e usam parâmetros SQL tipados; validações definitivas de integridade e processo são feitas também no banco.
 
-```text
-http://localhost:5173
-```
+## 6. Regras transacionais e dados
 
-### 8.8 Build do frontend
+### Venda (`sp_RegistrarVenda`)
 
-```bash
-cd frontend
-npm run build
-```
+- A procedure deve ser chamada sem transação SQL externa; ela controla sua própria transação.
+- Requer caixa aberto, ao menos um item e um pagamento, JSON válido e quantidades/valores positivos.
+- Código de barras precisa apontar para produto ativo; duplicatas de produto nos itens são agregadas.
+- Preço de venda vem do banco, nunca do navegador. O custo do item é congelado em `preco_custo_momento`.
+- Desconto não pode ser negativo nem maior que o total; soma dos pagamentos deve ser exatamente igual ao total menos desconto.
+- A procedure bloqueia/verifica as linhas de estoque com `UPDLOCK, HOLDLOCK`; se faltar saldo, não grava venda parcial.
+- Venda, itens, pagamentos, baixa de estoque, histórico e conversão de orçamento são gravados em uma única transação; falha provoca rollback e registro em `Log_Erros`.
+- Formas reconhecidas pela constraint SQL: `DINHEIRO`, `PIX`, `CARTAO_DEBITO`, `CARTAO_CREDITO`, `BOLETO`, `OUTROS`. A UI do PDV expõe diretamente apenas as quatro primeiras.
 
-Pré-visualizar:
+### Produtos e estoque
 
-```bash
-cd frontend
-npm run preview
-```
+- Nome é obrigatório; custo, preço de venda, estoque inicial e estoque mínimo não podem ser negativos. Código de barras de produtos ativos é único.
+- Sem código de barras informado, a procedure gera código interno de 13 dígitos iniciado por `200` e completado com o ID.
+- Cadastro com estoque inicial positivo cria movimento `ENTRADA`; cadastro com saldo zero não grava esse movimento.
+- Reposição exige inteiro positivo e produto ativo; motivo padrão do controller: `Reposicao de estoque`.
+- Edição atualiza nome, custo, venda, mínimo e categoria, não o saldo. Ajuste de saldo deve ser feito por entrada/venda/estorno.
+- Inativação preserva histórico comercial.
+- `vw_SugestaoCompra` e a tela de estoque não tratam como item de estoque próprio o produto que tem ficha técnica. A sugestão calcula `estoque_minimo - estoque_atual + 1` quando saldo está no mínimo ou abaixo.
 
-### 8.9 Login
+### Ficha técnica
 
-```text
-Usuário: admin
-Senha: admin123
-```
+- Ingredientes são produtos ativos; quantidade por ingrediente deve ser inteiro positivo.
+- Um produto não pode ser ingrediente de si próprio; o script v4.2 impede receita encadeada (ingrediente com ficha) e impede que ingrediente de outra receita também receba ficha.
+- `PUT /produtos/:id/ficha` substitui a receita completa; lista vazia remove a ficha.
+- Venda de produto sem ficha baixa o próprio estoque. Venda de produto com ficha baixa as quantidades dos ingredientes conforme unidades da receita multiplicadas pela quantidade vendida, sem baixar o produto fabricado.
+- O custo congelado na venda de produto com ficha é a soma da quantidade de ingredientes vezes o custo unitário atual desses ingredientes no momento da venda.
 
-### 8.10 Primeira utilização
+### Caixa, cancelamento e despesas
 
-1. Faça login;
-2. Selecione o nicho;
-3. Confirme o perfil;
-4. Cadastre ou confira produtos;
-5. Abra o caixa;
-6. Realize uma venda;
-7. Consulte o dashboard;
-8. Feche o caixa.
+- Índice filtrado no SQL limita a um caixa aberto por vez; troco inicial não pode ser negativo.
+- Fechamento só aceita caixa existente e ainda aberto. Resumo conta pagamentos apenas de vendas concluídas; gaveta esperada = troco inicial + pagamentos em dinheiro registrados. A conciliação apresenta bruto, taxa e líquido por forma de pagamento.
+- Cancelamento não se repete, exige venda existente e caixa original ainda aberto. Usa histórico de saídas associado à venda para devolver o estoque exato (incluindo ingredientes da ficha); se não houver histórico, usa os itens da venda como fallback. Registra motivo/status/data e mantém a venda para auditoria.
+- Despesa exige descrição e valor maior que zero. Se o parâmetro `pago` for omitido no backend, nasce paga; a tela de Contas a Pagar envia o estado da caixa de seleção. Contas pendentes têm `data_pagamento = NULL`; pagas têm data preenchida. Dar baixa em conta já paga é rejeitado.
+- Situações da view de contas: `PAGA`, `ATRASADA`, `VENCE HOJE`, `A VENCER`.
 
-### 8.11 Diagnóstico
+### Orçamentos, taxas e Pix
 
-Em caso de falha:
+- Orçamento requer itens de produtos ativos; validade não pode estar no passado e desconto não pode superar o subtotal. Criar orçamento não baixa estoque; preço unitário é congelado na criação.
+- A view calcula situação `EXPIRADO` quando orçamento aberto passou da validade. Converter exige status aberto e validade não vencida; conversão salva referência à venda e muda status para `CONVERTIDO`.
+- Ao levar um orçamento ao PDV, a tela reconsulta produtos atuais e monta carrinho usando preço e disponibilidade atuais; pode avisar/remover quantidades indisponíveis. O desconto e o ID do orçamento são transportados. Portanto, o preço do orçamento persistido e o valor da venda final podem divergir caso preço ou disponibilidade mudem após a criação.
+- Taxas aceitam percentuais de 0 a 100. A taxa vigente é copiada para cada pagamento na criação da venda, preservando histórico; vendas anteriores à implementação mantêm taxa zero. A DRE líquida desconta custo, despesas pagas e taxas dos pagamentos.
+- Pix é montado localmente, com valor positivo, moeda BRL, TXID `VENDA{id}`, campos EMV e CRC16-CCITT. A aplicação exibe QR Code/“Copia e Cola” somente para valores pagos em Pix e venda concluída. A UI informa que o QR não confirma recebimento; deve-se conferir o banco.
 
-- Confirme `DB_SERVER`;
-- Confirme `DB_DATABASE`;
-- Confirme usuário e senha;
-- Confirme que o servidor SQL está ativo;
-- Confirme autenticação habilitada;
-- Confirme porta e firewall;
-- Consulte o console do Node;
-- Consulte `dbo.Log_Erros`;
-- Consulte `dbo.vw_ErrosRecentes`.
+### Indicadores
 
----
+- Dashboard lê mês corrente, seis meses de DRE, sugestão de compra, dez movimentos mais recentes e contas atrasadas/que vencem hoje/próximas cinco. Entradas/saídas mostradas no componente Fluxo de Caixa incluem apenas transações mantidas no estado da tela; o fechamento oficial vem da API/SQL.
+- DRE agrupa vendas concluídas pelo mês da venda e despesas pagas pelo mês do pagamento. Fórmula atual: faturamento bruto menos descontos, custo congelado dos itens, despesas pagas e taxas congeladas.
+- Curva ABC (`fn_CurvaABC`): ordena por lucro observado em itens de vendas concluídas, classe A até a faixa acumulada de 80%, B até 95%, C restante; margem percentual é lucro/receita.
+- Estoque parado (`fn_EstoqueParado`): produtos ativos com saldo positivo, sem ficha e sem saída válida na janela; considera data de cadastro se não houver saída; capital parado = saldo × custo atual.
+- Picos (`fn_PicoVendas`): quantidade e faturamento por dia da semana/hora, somente vendas concluídas; dia 0 = segunda-feira.
+- Janela analítica aceita 1–730 dias; valor inválido cai no padrão (90 para ABC/picos, 30 para estoque parado). Vendas canceladas são excluídas dos indicadores financeiros.
 
-## 9. Pontos de Atenção Arquiteturais
+## 7. Modelo de dados resumido
 
-### 9.1 Segurança
+| Tabela / conjunto | Papel |
+|---|---|
+| `Produtos`, `Categorias`, `Marcas` | Catálogo, classificação, preço, saldo e ativo/inativo |
+| `Vendas`, `ItensVenda`, `PagamentosVenda` | Venda, itens, preço/custo congelados e formas de recebimento |
+| `Controle_Caixa` | Turnos, troco inicial, datas e status aberto/fechado |
+| `Historico_Movimentacao_Estoque` | Entradas/saídas, saldo resultante, motivo, usuário e venda de origem |
+| `Clientes` | Dados de contato/documento e ativo; histórico de compras é derivado das vendas |
+| `Orcamentos`, `ItensOrcamento` | Propostas, preços da criação, validade, status e venda convertida |
+| `FichaTecnica` | Relação produto fabricado/ingrediente e consumo inteiro por unidade |
+| `Despesas` | Contas pendentes/pagas, vencimento, pagamento e valor |
+| `TaxasPagamento` | Taxa vigente por forma; pagamentos preservam a taxa aplicada |
+| `Configuracoes` | Perfil `VAREJO`/`ALIMENTACAO` e conclusão do onboarding |
+| `Usuarios`, `Sessoes` | Contas, hash de senha, perfil, sessão por hash de token e expiração |
+| `Log_Erros` | Erros das procedures, códigos, origem, mensagem e dados de contexto |
 
-- Senha armazenada no repositório;
-- Login fixo no frontend;
-- API sem autenticação;
-- API sem autorização;
-- CORS liberado;
-- Ausência de HTTPS local;
-- Dados de clientes sem proteção adicional.
+Views centrais incluem `vw_CatalogoProdutos`, `vw_SugestaoCompra`, `vw_FechamentoCaixa`, `vw_ConciliacaoCaixa`, `vw_RelatorioMensal_DRE`, `vw_ContasPagar`, `vw_HistoricoVendas`, `vw_Orcamentos`, `vw_AuditoriaEstoque` e `vw_ErrosRecentes`.
 
-### 9.2 Configuração
+## 8. Tratamento de erros
 
-- URLs fixas para `http://localhost:3000`;
-- Não existe variável central da API no frontend;
-- Não existe proxy configurado no Vite;
-- O frontend depende da execução local do backend.
+`backend/src/utils/erroHttp.js` converte erros SQL com número `50000–50999` em HTTP 400, retornando texto amigável e código. Outros erros tratados por `responderErro` viram HTTP 500 com mensagem genérica; detalhes técnicos ficam no console. Nem todos os controllers usam a mesma função de tratamento, portanto mensagens/status podem variar por rota. Procedures base usam `THROW`, rollback quando a transação é própria e tentam gravar contexto em `Log_Erros`.
 
-### 9.3 Organização
+## 9. Pontos de atenção e divergências observadas
 
-- `App.jsx` concentra muitos componentes;
-- As consultas SQL ficam diretamente nos controllers;
-- Não existe camada de serviço;
-- Não existe camada de repositório;
-- Não foram identificados testes;
-- Não foram identificadas migrations;
-- Não foi identificado pipeline CI/CD;
-- `node_modules` está presente no repositório.
+1. `docs/documentacao-tecnica.md` e `docs/manual_sql.md` têm trechos da versão antiga: a documentação técnica afirma que login é local/fixo, mas o código atual usa `/api/auth/login`, SQL `Usuarios/Sessoes`, token Bearer e permissões. Atualizar esses textos para evitar orientação errada.
+2. A raiz e scripts têm várias versões; aplicar etapas na ordem indicada é necessário para que controllers que usam objetos das versões posteriores funcionem.
+3. `backend/.env` está presente no inventário do repositório; segredos devem ser removidos do versionamento e rotacionados quando necessário. Configuração SQL usa `encrypt: false` e `trustServerCertificate: true`, adequada apenas a ambiente controlado/local, não como recomendação automática de produção.
+4. Frontend aponta diretamente a `localhost:3000/api`; não há configuração de URL por ambiente no código consultado. `cors()` está configurado sem allowlist explícita.
+5. O cancelamento v4.4 corrige o estorno para usar os movimentos ligados à venda (inclui ingredientes); procedimentos mais antigos v4.0/v4.1 não tinham a mesma semântica para ficha técnica. Usar migração v4.4.
+6. Payload Pix é gerado, mas não há confirmação de liquidação via banco. O próprio recibo instrui conferir o pagamento no aplicativo bancário.
+7. O frontend tem telas concentradas em arquivos JSX e manifestos sem suíte de testes declarada; mudanças em regras transacionais devem ser verificadas também no SQL Server e com testes de integração.
+8. Scripts SQL têm validação de domínio, mas alguns campos/parâmetros são verificados em camadas diferentes; em implantação, validar requests tanto no backend quanto nas procedures.
+9. Não foi possível confirmar por leitura de código se todas as validações documentadas em `docs/documentacao-tecnica.md` correspondem exatamente às procedures vigentes; para regras acima, a fonte usada foram os scripts versionados e controllers lidos.
 
-### 9.4 Dados
+## 10. Arquivos de referência
 
-- Regras críticas ficam no banco;
-- Isso melhora integridade;
-- Exige testes completos das procedures;
-- IDs são recebidos do frontend;
-- Devem ser validados no backend e no banco;
-- Erros são registrados em `Log_Erros`.
-
-### 9.5 Evolução recomendada
-
-- Implementar JWT;
-- Criar usuários e perfis;
-- Proteger todas as rotas;
-- Trocar login fixo por tabela de usuários;
-- Externalizar URL da API;
-- Criar migrations;
-- Introduzir camada de repositório;
-- Separar componentes de `App.jsx`;
-- Criar módulos de domínio;
-- Adicionar testes;
-- Remover `node_modules` do repositório;
-- Proteger arquivos `.env`;
-- Criar Docker Compose;
-- Criar logs estruturados;
-- Criar auditoria de usuário;
-- Configurar ambientes;
-- Adicionar validação central;
-- Cancelar orçamentos expirados;
-- Criar documentação OpenAPI/Swagger.
+- Backend: `backend/src/server.js`, `backend/src/routes/`, `backend/src/controllers/`, `backend/src/middleware/`, `backend/src/utils/`.
+- Frontend: `frontend/src/App.jsx`, `frontend/src/comum.jsx`, `frontend/src/telas/`.
+- Banco: `database/estrutura.banco.ERP_v4.0.sql`, `database/ERP_CORE_etapa1_v4.1.sql` até `ERP_CORE_etapa4_v4.4.sql`.
+- Analytics: `analytics/01_funcoes_analiticas.sql` e `analytics/readme.md`.
+- Processos descritos para usuários: `docs/documentacao-funcional.md`.
