@@ -219,21 +219,21 @@ export default function PDV({ products, idCaixa, atualizarLista, setTransactions
             {resultados.map(p => {
               const semEstoque = !p.temFicha && p.estoque <= 0;
               return (
-              <button key={p.id} onClick={() => adicionar(p)} disabled={semEstoque}
-                style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%",
-                  textAlign: "left", padding: "10px 16px", border: "none", borderTop: `1px solid ${C.grayLight}`,
-                  background: C.white, cursor: semEstoque ? "not-allowed" : "pointer",
-                  fontFamily: "inherit", opacity: semEstoque ? 0.5 : 1,
-                }}>
-                <span>
-                  <span style={{ display: "block", fontWeight: 600, fontSize: 14, color: C.navyDark }}>{p.nome}</span>
-                  <span style={{ display: "block", fontSize: 12, color: semEstoque ? C.red : C.grayMid }}>
-                    {p.categoria} · {p.temFicha ? "feito sob encomenda (receita)" : semEstoque ? "sem estoque" : `${p.estoque} em estoque`}
+                <button key={p.id} onClick={() => adicionar(p)} disabled={semEstoque}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%",
+                    textAlign: "left", padding: "10px 16px", border: "none", borderTop: `1px solid ${C.grayLight}`,
+                    background: C.white, cursor: semEstoque ? "not-allowed" : "pointer",
+                    fontFamily: "inherit", opacity: semEstoque ? 0.5 : 1,
+                  }}>
+                  <span>
+                    <span style={{ display: "block", fontWeight: 600, fontSize: 14, color: C.navyDark }}>{p.nome}</span>
+                    <span style={{ display: "block", fontSize: 12, color: semEstoque ? C.red : C.grayMid }}>
+                      {p.categoria} · {p.temFicha ? "feito sob encomenda (receita)" : semEstoque ? "sem estoque" : `${p.estoque} em estoque`}
+                    </span>
                   </span>
-                </span>
-                <span style={{ fontWeight: 700, color: C.navyDark, fontSize: 14 }}>{fmt(p.preco)}</span>
-              </button>
+                  <span style={{ fontWeight: 700, color: C.navyDark, fontSize: 14 }}>{fmt(p.preco)}</span>
+                </button>
               );
             })}
             {resultados.length === 0 && (

@@ -13,3 +13,6 @@ dist/
 .DS_Store
 Thumbs.db
 *.log
+
+# Relatório gerado a cada execução dos testes
+backend/tests/relatorio_ultimo_teste.json
